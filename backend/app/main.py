@@ -33,6 +33,23 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     scheduler = get_scheduler()
     await scheduler.start()
 
+    # Run workflow recovery on startup
+    from backend.app.core.recovery import get_recovery_service
+    from backend.app.db.session import AsyncSessionLocal
+    try:
+        async with AsyncSessionLocal() as recovery_db:
+            recovery = get_recovery_service(db=recovery_db)
+            report = await recovery.recover_all()
+            if report.total_recovered > 0:
+                import structlog
+                structlog.get_logger("recovery").info(
+                    "startup.recovery_complete",
+                    recovered_workflows=len(report.recovered_workflows),
+                    recovered_approvals=len(report.recovered_approvals),
+                )
+    except Exception:
+        pass  # Recovery errors must never prevent startup
+
     yield
 
     # Graceful shutdown

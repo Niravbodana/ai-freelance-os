@@ -80,6 +80,7 @@ class Event:
     occurred_at: datetime = field(default_factory=lambda: datetime.now(tz=UTC))
     source: str = "system"
     correlation_id: str | None = None
+    trace_id: str | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -89,6 +90,7 @@ class Event:
             "occurred_at": self.occurred_at.isoformat(),
             "source": self.source,
             "correlation_id": self.correlation_id,
+            "trace_id": self.trace_id,
         }
 
 
@@ -211,16 +213,58 @@ class EventBus:
         *,
         source: str = "system",
         correlation_id: str | None = None,
+        trace_id: str | None = None,
     ) -> Event:
-        """Convenience method: build an Event and publish it."""
+        """Convenience method: build an Event and publish it.
+
+        If *trace_id* is not provided, it is automatically injected from the
+        current request context (if :class:`TraceMiddleware` is active).
+        """
+        # Auto-inject trace_id from context if not provided
+        if trace_id is None:
+            try:
+                from backend.app.core.tracing import get_trace_id
+                trace_id = get_trace_id()
+            except Exception:
+                pass
+
         event = Event(
             event_type=event_type,
             payload=payload,
             source=source,
             correlation_id=correlation_id,
+            trace_id=trace_id,
         )
         await self.publish(event)
         return event
+
+    async def replay(self, events: list[Event]) -> None:
+        """Re-publish a list of previously stored events.
+
+        Useful for replaying failed events from the dead-letter queue or
+        for replaying event history in tests / disaster recovery.
+        The ``event_id`` and ``occurred_at`` of each event are preserved.
+        """
+        for event in events:
+            handlers = self._collect_handlers(event.event_type)
+            if not handlers:
+                logger.debug("event_bus.replay.no_handlers", event_type=event.event_type)
+                continue
+            logger.info(
+                "event_bus.replay",
+                event_id=event.event_id,
+                event_type=event.event_type,
+                handler_count=len(handlers),
+            )
+            tasks = [asyncio.create_task(self._invoke(h, event)) for h in handlers]
+            await asyncio.gather(*tasks, return_exceptions=True)
+
+    def event_history(self) -> list[tuple[Event, Exception]]:
+        """Return a copy of the dead-letter queue without clearing it.
+
+        Use :meth:`drain_dead_letter` to clear after inspecting.
+        """
+        return list(self._dead_letter)
 
     def _collect_handlers(self, event_type: str) -> list[EventHandler]:
         handlers: list[EventHandler] = list(self._handlers.get(event_type, []))

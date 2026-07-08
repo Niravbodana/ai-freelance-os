@@ -113,3 +113,66 @@ class TestEventPersistence:
         await bus.emit(EventType.TASK_CREATED, payload={})
         # Handler still fires despite store failure
         assert len(received) == 1
+
+
+class TestTraceId:
+    async def test_trace_id_in_event_envelope(self) -> None:
+        bus = EventBus()
+        received: list[Event] = []
+
+        async def handler(e: Event) -> None:
+            received.append(e)
+
+        bus.subscribe(EventType.TASK_CREATED, handler)
+        await bus.emit(EventType.TASK_CREATED, payload={}, trace_id="trace-abc")
+        assert received[0].trace_id == "trace-abc"
+
+    async def test_event_to_dict_includes_trace_id(self) -> None:
+
+        event = Event(
+            event_type="test",
+            payload={},
+            trace_id="trace-xyz",
+        )
+        d = event.to_dict()
+        assert d["trace_id"] == "trace-xyz"
+
+
+class TestReplay:
+    async def test_replay_re_invokes_handlers(self) -> None:
+        bus = EventBus()
+        calls: list[Event] = []
+
+        async def handler(e: Event) -> None:
+            calls.append(e)
+
+        bus.subscribe(EventType.TASK_CREATED, handler)
+        original = await bus.emit(EventType.TASK_CREATED, payload={"original": True})
+
+        # Replay the same event
+        calls.clear()
+        await bus.replay([original])
+        assert len(calls) == 1
+        assert calls[0].event_id == original.event_id
+
+    async def test_replay_empty_list(self) -> None:
+        bus = EventBus()
+        # Should not raise
+        await bus.replay([])
+
+
+class TestEventHistory:
+    async def test_history_returns_dead_letters_without_clearing(self) -> None:
+        bus = EventBus()
+
+        async def bad_handler(e: Event) -> None:
+            raise ValueError("oops")
+
+        bus.subscribe(EventType.TASK_CREATED, bad_handler)
+        await bus.emit(EventType.TASK_CREATED, payload={})
+
+        history = bus.event_history()
+        assert len(history) == 1
+        # History does not clear; drain_dead_letter still returns items
+        dead = bus.drain_dead_letter()
+        assert len(dead) == 1

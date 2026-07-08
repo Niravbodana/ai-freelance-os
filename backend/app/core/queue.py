@@ -24,6 +24,7 @@ Usage::
 """
 from __future__ import annotations
 
+import asyncio
 import json
 import time
 from dataclasses import dataclass, field
@@ -200,6 +201,17 @@ class TaskQueue:
         """Return the current number of pending jobs."""
         return await self._redis.llen(self.key)
 
+    async def dequeue_dead_letter(self) -> Job | None:
+        """Pop one job from the dead-letter queue (non-blocking)."""
+        raw = await self._redis.lpop(self.dead_letter_key)
+        if raw is None:
+            return None
+        return Job.from_json(raw)
+
+    async def dead_letter_depth(self) -> int:
+        """Return the number of jobs in the dead-letter queue."""
+        return await self._redis.llen(self.dead_letter_key)
+
     async def close(self) -> None:
         await self._redis.aclose()
 
@@ -224,6 +236,9 @@ class PriorityTaskQueue:
 
     The dead-letter queue is a plain Redis list (``queue:<name>:dead_letter``)
     shared with :class:`TaskQueue` for operational consistency.
+
+    Worker concurrency is controlled via an asyncio.Semaphore: callers obtain
+    a slot with ``async with queue.worker_slot()`` before processing each job.
     """
 
     DEAD_LETTER_SUFFIX = ":dead_letter"
@@ -232,12 +247,14 @@ class PriorityTaskQueue:
         self,
         name: str | None = None,
         redis_url: str | None = None,
+        max_workers: int = 10,
     ) -> None:
         self._name = (name or settings.queue_default_name) + ":priority"
         self._redis: aioredis.Redis = aioredis.from_url(
             redis_url or settings.redis_url,
             decode_responses=True,
         )
+        self._semaphore = asyncio.Semaphore(max_workers)
 
     @property
     def key(self) -> str:
@@ -246,6 +263,16 @@ class PriorityTaskQueue:
     @property
     def dead_letter_key(self) -> str:
         return f"queue:{self._name}{self.DEAD_LETTER_SUFFIX}"
+
+    def worker_slot(self) -> asyncio.Semaphore:
+        """Return the concurrency semaphore for use in ``async with`` blocks.
+
+        Example::
+            async with queue.worker_slot():
+                job = await queue.dequeue()
+                ...
+        """
+        return self._semaphore
 
     async def enqueue(
         self,
@@ -278,8 +305,6 @@ class PriorityTaskQueue:
 
         Polls up to *timeout* seconds when the queue is empty (0 = non-blocking).
         """
-        import asyncio
-
         deadline = time.time() + timeout if timeout > 0 else None
         while True:
             result = await self._redis.zpopmin(self.key, count=1)
@@ -328,6 +353,17 @@ class PriorityTaskQueue:
                 job_id=job.job_id,
                 attempt=job.attempt,
             )
+
+    async def dequeue_dead_letter(self) -> Job | None:
+        """Pop one job from the dead-letter queue (non-blocking)."""
+        raw = await self._redis.lpop(self.dead_letter_key)
+        if raw is None:
+            return None
+        return Job.from_json(raw)
+
+    async def dead_letter_depth(self) -> int:
+        """Return the number of jobs in the dead-letter queue."""
+        return await self._redis.llen(self.dead_letter_key)
 
     async def depth(self) -> int:
         return await self._redis.zcard(self.key)

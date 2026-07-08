@@ -18,6 +18,7 @@ class TaskStatus(StrEnum):
     QA = "qa"
     COMPLETED = "completed"
     FAILED = "failed"
+    PAUSED = "paused"  # workflow paused; can be resumed
 
 
 class TaskPriority(StrEnum):

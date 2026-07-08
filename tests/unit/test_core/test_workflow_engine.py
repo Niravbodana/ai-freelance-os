@@ -5,17 +5,22 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from backend.app.core.workflow import WorkflowEngine, WorkflowTransitionError
+from backend.app.core.workflow import (
+    WorkflowEngine,
+    WorkflowRollbackError,
+    WorkflowTransitionError,
+)
 from backend.app.models.task import Task, TaskPriority, TaskStatus
 
 
-def _make_task(status: TaskStatus) -> MagicMock:
+def _make_task(status: TaskStatus, metadata_json: str | None = None) -> MagicMock:
     task = MagicMock(spec=Task)
     task.id = "task-1"
     task.status = status
     task.title = "Test task"
     task.description = "desc"
     task.priority = TaskPriority.MEDIUM
+    task.metadata_json = metadata_json
     return task
 
 
@@ -75,6 +80,48 @@ class TestResume:
         task = _make_task(TaskStatus.RUNNING)
         with pytest.raises(WorkflowTransitionError):
             await engine.resume(task)
+
+
+class TestPause:
+    async def test_pause_running_task(self, engine: WorkflowEngine) -> None:
+        task = _make_task(TaskStatus.RUNNING)
+        result = await engine.pause(task)
+        assert result.status == TaskStatus.PAUSED
+
+    async def test_pause_completed_raises(self, engine: WorkflowEngine) -> None:
+        task = _make_task(TaskStatus.COMPLETED)
+        with pytest.raises(WorkflowTransitionError):
+            await engine.pause(task)
+
+    async def test_resume_paused_task(self, engine: WorkflowEngine) -> None:
+        task = _make_task(TaskStatus.PAUSED)
+        result = await engine.resume_paused(task, target_status=TaskStatus.RUNNING)
+        assert result.status == TaskStatus.RUNNING
+
+    async def test_resume_paused_wrong_state_raises(self, engine: WorkflowEngine) -> None:
+        task = _make_task(TaskStatus.RUNNING)
+        with pytest.raises(WorkflowTransitionError):
+            await engine.resume_paused(task)
+
+
+class TestRollback:
+    async def test_rollback_to_previous_state(self, engine: WorkflowEngine, db: AsyncMock) -> None:
+        import json
+        metadata = json.dumps({"_prev_status": "assigned"})
+        task = _make_task(TaskStatus.RUNNING, metadata_json=metadata)
+        result = await engine.rollback(task)
+        assert result.status == TaskStatus.ASSIGNED
+
+    async def test_rollback_no_metadata_raises(self, engine: WorkflowEngine) -> None:
+        task = _make_task(TaskStatus.RUNNING, metadata_json=None)
+        with pytest.raises(WorkflowRollbackError):
+            await engine.rollback(task)
+
+    async def test_rollback_invalid_state_raises(self, engine: WorkflowEngine) -> None:
+        import json
+        task = _make_task(TaskStatus.RUNNING, metadata_json=json.dumps({"_prev_status": "garbage"}))
+        with pytest.raises(WorkflowRollbackError):
+            await engine.rollback(task)
 
 
 class TestTransitionWithRetry:

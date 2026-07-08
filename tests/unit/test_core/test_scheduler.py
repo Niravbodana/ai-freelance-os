@@ -95,3 +95,43 @@ class TestSchedulerHandlers:
         scheduler.register_handler("job", h1)
         scheduler.register_handler("job", h2)
         assert len(scheduler._handlers["job"]) == 2
+
+
+class TestScheduledJobDeadlineTimeout:
+    def test_job_not_expired_without_deadline(self) -> None:
+        job = ScheduledJob(name="test", payload={})
+        assert not job.is_expired()
+
+    def test_job_not_expired_within_deadline(self) -> None:
+        job = ScheduledJob(name="test", payload={}, deadline_seconds=3600)
+        assert not job.is_expired()
+
+    def test_job_expired_past_deadline(self) -> None:
+        from datetime import UTC, datetime, timedelta
+
+        job = ScheduledJob(name="test", payload={}, deadline_seconds=1)
+        # Force created_at to be 10 seconds ago
+        job.created_at = datetime.now(tz=UTC) - timedelta(seconds=10)
+        assert job.is_expired()
+
+    def test_serialization_includes_deadline_and_timeout(self) -> None:
+        job = ScheduledJob(
+            name="test",
+            payload={},
+            deadline_seconds=600.0,
+            timeout_seconds=30.0,
+        )
+        d = job.to_dict()
+        assert d["deadline_seconds"] == 600.0
+        assert d["timeout_seconds"] == 30.0
+
+    def test_roundtrip_preserves_deadline_and_timeout(self) -> None:
+        job = ScheduledJob(
+            name="my_job",
+            payload={"k": "v"},
+            deadline_seconds=120.0,
+            timeout_seconds=15.0,
+        )
+        restored = ScheduledJob.from_dict(job.to_dict())
+        assert restored.deadline_seconds == 120.0
+        assert restored.timeout_seconds == 15.0

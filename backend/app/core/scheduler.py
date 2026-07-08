@@ -170,6 +170,10 @@ class ScheduledJob:
     cron: str | None = None  # set for recurring jobs
     created_at: datetime = field(default_factory=lambda: datetime.now(tz=UTC))
     error: str | None = None
+    # Deadline: max seconds from creation before job expires (one-shot jobs only)
+    deadline_seconds: float | None = None
+    # Timeout: max seconds for a single handler invocation
+    timeout_seconds: float | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -182,6 +186,8 @@ class ScheduledJob:
             "cron": self.cron,
             "created_at": self.created_at.isoformat(),
             "error": self.error,
+            "deadline_seconds": self.deadline_seconds,
+            "timeout_seconds": self.timeout_seconds,
         }
 
     @classmethod
@@ -196,8 +202,17 @@ class ScheduledJob:
             cron=data.get("cron"),
             created_at=datetime.fromisoformat(data["created_at"]),
             error=data.get("error"),
+            deadline_seconds=data.get("deadline_seconds"),
+            timeout_seconds=data.get("timeout_seconds"),
         )
         return obj
+
+    def is_expired(self) -> bool:
+        """Return True if the job's deadline has passed."""
+        if self.deadline_seconds is None:
+            return False
+        age = (datetime.now(tz=UTC) - self.created_at).total_seconds()
+        return age > self.deadline_seconds
 
 
 # ── Job handler type ──────────────────────────────────────────────────────────
@@ -242,12 +257,26 @@ class Scheduler:
         name: str,
         payload: dict[str, Any] | None = None,
         max_attempts: int = 3,
+        deadline_seconds: float | None = None,
+        timeout_seconds: float | None = None,
     ) -> str:
         """Schedule a one-shot job to fire after *delay_seconds*.
 
+        Args:
+            deadline_seconds: Absolute max seconds after scheduling before the
+                job is considered expired (never fires after deadline).
+            timeout_seconds:  Max execution time for each handler invocation.
+                              Handlers that exceed this are cancelled.
+
         Returns the job_id.
         """
-        job = ScheduledJob(name=name, payload=payload or {}, max_attempts=max_attempts)
+        job = ScheduledJob(
+            name=name,
+            payload=payload or {},
+            max_attempts=max_attempts,
+            deadline_seconds=deadline_seconds,
+            timeout_seconds=timeout_seconds,
+        )
         run_at = time.time() + delay_seconds
         await self._redis.zadd(_DELAYED_KEY, {json.dumps(job.to_dict()): run_at})
         SCHEDULER_JOBS_SCHEDULED.labels(job_name=name).inc()
@@ -265,6 +294,7 @@ class Scheduler:
         name: str,
         payload: dict[str, Any] | None = None,
         max_attempts: int = 3,
+        timeout_seconds: float | None = None,
     ) -> str:
         """Schedule a recurring job described by a 5-field *cron* expression.
 
@@ -272,7 +302,11 @@ class Scheduler:
         """
         expr = CronExpression.parse(cron)
         job = ScheduledJob(
-            name=name, payload=payload or {}, max_attempts=max_attempts, cron=cron
+            name=name,
+            payload=payload or {},
+            max_attempts=max_attempts,
+            cron=cron,
+            timeout_seconds=timeout_seconds,
         )
         # Store cron definition in a hash for recovery after restart
         await self._redis.hset(_CRON_KEY, job.job_id, json.dumps(job.to_dict()))
@@ -380,6 +414,17 @@ class Scheduler:
 
     async def _fire(self, job: ScheduledJob) -> None:
         """Execute the job and handle success, failure, and rescheduling."""
+        # Check deadline before executing
+        if job.is_expired():
+            job.status = ScheduledJobStatus.CANCELLED
+            logger.warning(
+                "scheduler.job_expired",
+                job_id=job.job_id,
+                name=job.name,
+                deadline_seconds=job.deadline_seconds,
+            )
+            return
+
         SCHEDULER_JOBS_FIRED.labels(job_name=job.name).inc()
         logger.info("scheduler.job_fired", job_id=job.job_id, name=job.name, attempt=job.attempt)
 
@@ -388,7 +433,31 @@ class Scheduler:
             logger.warning("scheduler.no_handler", job_name=job.name, job_id=job.job_id)
         else:
             try:
-                await asyncio.gather(*[h(job) for h in handlers])
+                coros = [h(job) for h in handlers]
+                if job.timeout_seconds is not None:
+                    await asyncio.wait_for(
+                        asyncio.gather(*coros),
+                        timeout=job.timeout_seconds,
+                    )
+                else:
+                    await asyncio.gather(*coros)
+            except TimeoutError:
+                job.error = f"Timed out after {job.timeout_seconds}s"
+                job.attempt += 1
+                logger.error(
+                    "scheduler.job_timeout",
+                    job_id=job.job_id,
+                    name=job.name,
+                    timeout=job.timeout_seconds,
+                )
+                if job.attempt < job.max_attempts:
+                    backoff = (2**job.attempt) * 5.0
+                    await self._redis.zadd(
+                        _DELAYED_KEY, {json.dumps(job.to_dict()): time.time() + backoff}
+                    )
+                else:
+                    job.status = ScheduledJobStatus.FAILED
+                return
             except Exception as exc:
                 job.error = str(exc)
                 job.attempt += 1
