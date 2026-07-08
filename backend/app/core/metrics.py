@@ -189,8 +189,13 @@ PLUGINS_LOADED = Gauge(
 
 # ── Cost estimator ────────────────────────────────────────────────────────────
 
-# Prices in USD per 1 000 tokens (input, output).
-# Values are approximate and should be updated as provider pricing changes.
+# Prices in USD per 1 000 tokens (input_price, output_price).
+# Values are approximate and should be reviewed when provider pricing changes.
+# Last verified: 2026-07 — check provider dashboards for current rates:
+#   OpenAI:    https://openai.com/pricing
+#   Anthropic: https://www.anthropic.com/pricing
+#   DeepSeek:  https://platform.deepseek.com/api-docs/pricing
+#   Gemini:    https://ai.google.dev/pricing
 _COST_PER_1K: dict[str, dict[str, tuple[float, float]]] = {
     "openai": {
         "gpt-4o": (0.005, 0.015),

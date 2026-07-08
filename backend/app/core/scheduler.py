@@ -86,7 +86,25 @@ def _parse_field(expr: str, lo: int, hi: int) -> frozenset[int]:
 
 @dataclass(frozen=True)
 class CronExpression:
-    """Parsed representation of a 5-field cron expression."""
+    """Parsed representation of a 5-field cron expression.
+
+    Field order: ``<minute> <hour> <day-of-month> <month> <day-of-week>``
+
+    Supported syntax per field:
+    - ``*``       – every unit
+    - ``*/N``     – every N units (e.g. ``*/15`` = every 15 minutes)
+    - ``N``       – exact value
+    - ``N,M,...`` – comma-separated list of values
+    - ``N-M``     – inclusive range
+
+    Day-of-week uses Python convention (Mon=0 … Sun=6).
+
+    Examples::
+
+        CronExpression.parse("0 * * * *")       # top of every hour
+        CronExpression.parse("*/5 9-17 * * 1-5") # every 5 min, business hours, weekdays
+        CronExpression.parse("0 0 1 * *")        # midnight on the 1st of each month
+    """
 
     minutes: frozenset[int]
     hours: frozenset[int]

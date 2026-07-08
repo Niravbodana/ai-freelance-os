@@ -208,6 +208,10 @@ class TaskQueue:
 
 # Scale factor: reserving 12 decimal digits for the monotonic counter keeps
 # priorities strictly separated (each priority band can hold up to 10^12 jobs).
+# Scale factor: each priority band occupies 10^12 slots so that a CRITICAL job
+# with score 0 * 10^12 + <timestamp> is always less than a HIGH job with score
+# 1 * 10^12 + <timestamp>, regardless of insertion time.  12 decimal digits
+# comfortably exceed the number of jobs any single priority band will ever hold.
 _PRIORITY_SCALE = 1_000_000_000_000
 
 
