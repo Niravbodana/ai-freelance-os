@@ -4,7 +4,8 @@ CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 -- Create enums
 DO $$ BEGIN
     CREATE TYPE task_status AS ENUM (
-        'pending', 'in_progress', 'awaiting_approval', 'completed', 'failed', 'cancelled'
+        'created', 'analyzing', 'waiting_for_approval',
+        'approved', 'assigned', 'running', 'qa', 'completed', 'failed'
     );
 EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 
