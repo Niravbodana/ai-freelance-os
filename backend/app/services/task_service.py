@@ -8,6 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.app.core.exceptions import NotFoundError
 from backend.app.core.logging import get_logger
+from backend.app.core.metrics import TASKS_COMPLETED, TASKS_CREATED, TASKS_FAILED
 from backend.app.models.task import Task, TaskStatus
 from backend.app.schemas.task import TaskCreate, TaskUpdate
 
@@ -24,13 +25,27 @@ class TaskService:
             title=payload.title,
             description=payload.description,
             priority=payload.priority,
-            status=TaskStatus.PENDING,
+            status=TaskStatus.CREATED,
             metadata_json=json.dumps(payload.metadata) if payload.metadata else None,
         )
         self._db.add(task)
         await self._db.flush()
         await self._db.refresh(task)
+
+        TASKS_CREATED.inc()
         logger.info("task.created", task_id=task.id, title=task.title)
+
+        try:
+            from backend.app.core.events import EventType, get_event_bus
+
+            await get_event_bus().emit(
+                EventType.TASK_CREATED,
+                payload={"task_id": task.id, "title": task.title, "priority": task.priority},
+                source="task_service",
+            )
+        except Exception:
+            pass
+
         return task
 
     async def get(self, task_id: str) -> Task:
@@ -50,11 +65,18 @@ class TaskService:
 
     async def update(self, task_id: str, payload: TaskUpdate) -> Task:
         task = await self.get(task_id)
-        for field, value in payload.model_dump(exclude_unset=True).items():
-            setattr(task, field, value)
+        for field_name, value in payload.model_dump(exclude_unset=True).items():
+            setattr(task, field_name, value)
         await self._db.flush()
         await self._db.refresh(task)
         logger.info("task.updated", task_id=task_id)
+
+        # Track terminal state metrics
+        if payload.status == TaskStatus.COMPLETED:
+            TASKS_COMPLETED.inc()
+        elif payload.status == TaskStatus.FAILED:
+            TASKS_FAILED.labels(reason="manual_update").inc()
+
         return task
 
     async def delete(self, task_id: str) -> None:

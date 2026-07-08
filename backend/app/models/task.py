@@ -9,12 +9,15 @@ from backend.app.db.base import Base, TimestampMixin
 
 
 class TaskStatus(StrEnum):
-    PENDING = "pending"
-    IN_PROGRESS = "in_progress"
-    AWAITING_APPROVAL = "awaiting_approval"
+    CREATED = "created"
+    ANALYZING = "analyzing"
+    WAITING_FOR_APPROVAL = "waiting_for_approval"
+    APPROVED = "approved"
+    ASSIGNED = "assigned"
+    RUNNING = "running"
+    QA = "qa"
     COMPLETED = "completed"
     FAILED = "failed"
-    CANCELLED = "cancelled"
 
 
 class TaskPriority(StrEnum):
@@ -31,7 +34,7 @@ class Task(TimestampMixin, Base):
     title: Mapped[str] = mapped_column(String(255), nullable=False)
     description: Mapped[str] = mapped_column(Text, nullable=False)
     status: Mapped[TaskStatus] = mapped_column(
-        SAEnum(TaskStatus), default=TaskStatus.PENDING, nullable=False
+        SAEnum(TaskStatus), default=TaskStatus.CREATED, nullable=False
     )
     priority: Mapped[TaskPriority] = mapped_column(
         SAEnum(TaskPriority), default=TaskPriority.MEDIUM, nullable=False

@@ -15,7 +15,7 @@ async def test_create_task(db_session):
 
     assert task.id is not None
     assert task.title == "Test Task"
-    assert task.status == TaskStatus.PENDING
+    assert task.status == TaskStatus.CREATED
 
 
 @pytest.mark.asyncio

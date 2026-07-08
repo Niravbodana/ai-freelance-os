@@ -2,7 +2,7 @@
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Response
 from fastapi.middleware.cors import CORSMiddleware
 
 from backend.app.api.v1.router import api_router
@@ -18,9 +18,18 @@ configure_logging()
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     """Application lifespan: startup and shutdown events."""
     del app
+
+    # Initialise DB schema
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
+
+    # Boot the event bus singleton (no-op; lazy initialisation)
+    from backend.app.core.events import get_event_bus
+    get_event_bus()
+
     yield
+
+    # Graceful shutdown
     await engine.dispose()
 
 
@@ -42,3 +51,14 @@ app.add_middleware(
 )
 
 app.include_router(api_router, prefix="/api/v1")
+
+
+# ── Metrics endpoint ──────────────────────────────────────────────────────────
+
+if settings.metrics_enabled:
+    from backend.app.core.metrics import metrics_output
+
+    @app.get(settings.metrics_path, include_in_schema=False)
+    async def prometheus_metrics() -> Response:
+        """Prometheus scrape endpoint."""
+        return Response(content=metrics_output(), media_type="text/plain; version=0.0.4")

@@ -18,7 +18,7 @@ async def test_create_task(client):
     assert response.status_code == 201
     data = response.json()
     assert data["title"] == "Integration Test Task"
-    assert data["status"] == "pending"
+    assert data["status"] == "created"
 
 
 @pytest.mark.asyncio

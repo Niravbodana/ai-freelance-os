@@ -25,7 +25,7 @@ async def test_request_approval(db_session):
 
     # Task should be marked as awaiting approval
     updated_task = await task_service.get(task.id)
-    assert updated_task.status == TaskStatus.AWAITING_APPROVAL
+    assert updated_task.status == TaskStatus.WAITING_FOR_APPROVAL
 
 
 @pytest.mark.asyncio
