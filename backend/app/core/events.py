@@ -2,11 +2,18 @@
 
 All agents and services communicate through events rather than direct calls.
 The bus supports typed events, wildcard subscriptions, and dead-letter handling.
+
+Persistence:
+    Attach an ``EventStore`` (Redis-stream or DB backend) via
+    ``EventBus.set_store(store)`` to durably record every published event.
+    The store is called before handlers so events are never lost even if a
+    handler crashes.
 """
 from __future__ import annotations
 
 import asyncio
 import contextlib
+import json
 from collections import defaultdict
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
@@ -54,6 +61,11 @@ class EventType(StrEnum):
     PLUGIN_LOADED = "plugin.loaded"
     PLUGIN_UNLOADED = "plugin.unloaded"
 
+    # Scheduler
+    SCHEDULER_JOB_ENQUEUED = "scheduler.job_enqueued"
+    SCHEDULER_JOB_FIRED = "scheduler.job_fired"
+    SCHEDULER_JOB_FAILED = "scheduler.job_failed"
+
 
 # ── Event envelope ───────────────────────────────────────────────────────────
 
@@ -84,6 +96,53 @@ class Event:
 
 EventHandler = Callable[[Event], Awaitable[None]]
 
+
+# ── Event store protocol ─────────────────────────────────────────────────────
+
+
+class EventStore:
+    """Abstract persistence backend for events.
+
+    Concrete implementations (Redis streams, DB) override ``save``.
+    """
+
+    async def save(self, event: Event) -> None:  # pragma: no cover
+        """Persist *event* durably. Must be idempotent."""
+        raise NotImplementedError
+
+
+class RedisEventStore(EventStore):
+    """Persists events to a Redis Stream (XADD).
+
+    Each event is appended to the stream keyed by ``stream_key``.
+    Redis streams provide ordered, persistent, replayable event logs.
+    """
+
+    def __init__(self, redis_url: str | None = None, stream_key: str = "events:stream") -> None:
+        import redis.asyncio as aioredis
+
+        from backend.app.config import settings
+
+        self._redis = aioredis.from_url(redis_url or settings.redis_url, decode_responses=True)
+        self._stream_key = stream_key
+
+    async def save(self, event: Event) -> None:
+        await self._redis.xadd(
+            self._stream_key,
+            {
+                "event_id": event.event_id,
+                "event_type": event.event_type,
+                "source": event.source,
+                "correlation_id": event.correlation_id or "",
+                "occurred_at": event.occurred_at.isoformat(),
+                "payload": json.dumps(event.payload),
+            },
+        )
+
+    async def close(self) -> None:
+        await self._redis.aclose()
+
+
 # ── Event Bus ────────────────────────────────────────────────────────────────
 
 
@@ -95,11 +154,17 @@ class EventBus:
     - Exact event-type subscriptions.
     - Wildcard prefix subscriptions (e.g. "task.*" matches all task events).
     - Dead-letter queue for handlers that raise unhandled exceptions.
+    - Optional durable event persistence via an attached :class:`EventStore`.
     """
 
     def __init__(self) -> None:
         self._handlers: dict[str, list[EventHandler]] = defaultdict(list)
         self._dead_letter: list[tuple[Event, Exception]] = []
+        self._store: EventStore | None = None
+
+    def set_store(self, store: EventStore) -> None:
+        """Attach a persistence backend. Events will be saved before dispatch."""
+        self._store = store
 
     def subscribe(self, event_type: str, handler: EventHandler) -> None:
         """Register *handler* for *event_type* (exact or wildcard prefix ending with *)."""
@@ -112,7 +177,18 @@ class EventBus:
             self._handlers[event_type].remove(handler)
 
     async def publish(self, event: Event) -> None:
-        """Publish an event; invoke all matching handlers concurrently."""
+        """Publish an event; persist it (if store attached), then invoke all matching handlers."""
+        if self._store is not None:
+            try:
+                await self._store.save(event)
+            except Exception as exc:
+                logger.error(
+                    "event_bus.store_error",
+                    event_id=event.event_id,
+                    event_type=event.event_type,
+                    error=str(exc),
+                )
+
         handlers = self._collect_handlers(event.event_type)
         if not handlers:
             logger.debug("event_bus.no_handlers", event_type=event.event_type)

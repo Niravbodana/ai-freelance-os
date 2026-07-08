@@ -1,4 +1,27 @@
-"""Agent registry – maps agent_type strings to agent classes."""
+"""Agent registry – maps agent_type strings to agent classes.
+
+Supports:
+- Static registrations (built-in agents).
+- Dynamic registration at runtime via :meth:`AgentRegistry.register`.
+- Loading agent definitions from a JSON configuration file via
+  :meth:`AgentRegistry.load_from_config`.
+
+JSON config format::
+
+    {
+      "agents": [
+        {
+          "agent_type": "my_agent",
+          "class": "mypackage.mymodule.MyAgent"
+        }
+      ]
+    }
+"""
+from __future__ import annotations
+
+import importlib
+import json
+import pathlib
 from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -27,6 +50,66 @@ class AgentRegistry:
 
     def __init__(self, db: AsyncSession) -> None:
         self._db = db
+
+    # ── Dynamic registration ──────────────────────────────────────────────────
+
+    @classmethod
+    def register(cls, agent_type: str, agent_class: type[BaseAgent]) -> None:
+        """Register *agent_class* under *agent_type* globally.
+
+        Overwrites any existing registration for the same type.
+        """
+        _AGENT_MAP[agent_type] = agent_class
+        logger.info("agent_registry.registered", agent_type=agent_type, cls=agent_class.__name__)
+
+    @classmethod
+    def unregister(cls, agent_type: str) -> None:
+        """Remove the registration for *agent_type* (no-op if not registered)."""
+        removed = _AGENT_MAP.pop(agent_type, None)
+        if removed is not None:
+            logger.info("agent_registry.unregistered", agent_type=agent_type)
+
+    @classmethod
+    def load_from_config(cls, config: dict[str, Any] | str | pathlib.Path) -> None:
+        """Register agents from a JSON configuration.
+
+        *config* may be:
+        - A ``dict`` with an ``"agents"`` key (list of ``{agent_type, class}``).
+        - A ``str`` containing JSON text.
+        - A :class:`pathlib.Path` to a JSON file.
+
+        Each entry uses the dotted ``"class"`` path to import the class, e.g.
+        ``"mypackage.mymodule.MyAgent"``.
+
+        Raises :class:`AgentError` on invalid config or import failures.
+        """
+        if isinstance(config, (str, pathlib.Path)):
+            path = pathlib.Path(config)
+            raw = path.read_text(encoding="utf-8") if path.exists() else str(config)
+            data: dict[str, Any] = json.loads(raw)
+        else:
+            data = config
+
+        entries = data.get("agents", [])
+        if not isinstance(entries, list):
+            raise AgentError("registry", "'agents' must be a list")
+
+        for entry in entries:
+            agent_type = entry.get("agent_type")
+            class_path = entry.get("class")
+            if not agent_type or not class_path:
+                raise AgentError("registry", f"Invalid agent entry: {entry!r}")
+            try:
+                module_path, class_name = class_path.rsplit(".", 1)
+                module = importlib.import_module(module_path)
+                agent_class = getattr(module, class_name)
+            except Exception as exc:
+                raise AgentError(
+                    "registry", f"Cannot import '{class_path}': {exc}"
+                ) from exc
+            cls.register(agent_type, agent_class)
+
+    # ── Lookup & dispatch ─────────────────────────────────────────────────────
 
     def get_agent(self, agent_type: str) -> BaseAgent:
         agent_class = _AGENT_MAP.get(agent_type)

@@ -81,6 +81,24 @@ LLM_ERRORS = Counter(
     ["provider", "model"],
 )
 
+LLM_INPUT_TOKENS = Counter(
+    "llm_input_tokens_total",
+    "Total input tokens consumed by LLM calls",
+    ["provider", "model"],
+)
+
+LLM_OUTPUT_TOKENS = Counter(
+    "llm_output_tokens_total",
+    "Total output tokens produced by LLM calls",
+    ["provider", "model"],
+)
+
+LLM_COST_USD = Counter(
+    "llm_cost_usd_total",
+    "Estimated LLM spend in USD (based on published pricing)",
+    ["provider", "model"],
+)
+
 QUEUE_JOBS_ENQUEUED = Counter(
     "queue_jobs_enqueued_total",
     "Total jobs enqueued",
@@ -103,6 +121,18 @@ EVENTS_PUBLISHED = Counter(
     "events_published_total",
     "Total events published on the event bus",
     ["event_type"],
+)
+
+SCHEDULER_JOBS_SCHEDULED = Counter(
+    "scheduler_jobs_scheduled_total",
+    "Total jobs submitted to the scheduler",
+    ["job_name"],
+)
+
+SCHEDULER_JOBS_FIRED = Counter(
+    "scheduler_jobs_fired_total",
+    "Total scheduler jobs that were dispatched to handlers",
+    ["job_name"],
 )
 
 # ── Histograms ────────────────────────────────────────────────────────────────
@@ -156,6 +186,59 @@ PLUGINS_LOADED = Gauge(
     "plugins_loaded",
     "Number of plugins currently loaded",
 )
+
+# ── Cost estimator ────────────────────────────────────────────────────────────
+
+# Prices in USD per 1 000 tokens (input, output).
+# Values are approximate and should be updated as provider pricing changes.
+_COST_PER_1K: dict[str, dict[str, tuple[float, float]]] = {
+    "openai": {
+        "gpt-4o": (0.005, 0.015),
+        "gpt-4o-mini": (0.00015, 0.0006),
+        "gpt-4-turbo": (0.01, 0.03),
+        "gpt-3.5-turbo": (0.0005, 0.0015),
+    },
+    "anthropic": {
+        "claude-3-5-sonnet-20241022": (0.003, 0.015),
+        "claude-3-haiku-20240307": (0.00025, 0.00125),
+        "claude-3-opus-20240229": (0.015, 0.075),
+    },
+    "deepseek": {
+        "deepseek-chat": (0.00014, 0.00028),
+    },
+    "gemini": {
+        "gemini-1.5-pro": (0.00125, 0.005),
+        "gemini-1.5-flash": (0.000075, 0.0003),
+    },
+}
+
+
+def estimate_cost_usd(provider: str, model: str, input_tokens: int, output_tokens: int) -> float:
+    """Return the estimated USD cost for a single LLM call.
+
+    Falls back to 0.0 if the provider/model combination is not in the table.
+    """
+    pricing = _COST_PER_1K.get(provider, {}).get(model)
+    if pricing is None:
+        return 0.0
+    input_price, output_price = pricing
+    return (input_tokens * input_price + output_tokens * output_price) / 1000.0
+
+
+def record_llm_usage(
+    provider: str,
+    model: str,
+    input_tokens: int,
+    output_tokens: int,
+) -> float:
+    """Increment token and cost counters; returns the estimated cost in USD."""
+    LLM_INPUT_TOKENS.labels(provider=provider, model=model).inc(input_tokens)
+    LLM_OUTPUT_TOKENS.labels(provider=provider, model=model).inc(output_tokens)
+    cost = estimate_cost_usd(provider, model, input_tokens, output_tokens)
+    if cost > 0:
+        LLM_COST_USD.labels(provider=provider, model=model).inc(cost)
+    return cost
+
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
 

@@ -4,10 +4,17 @@ Enforces the allowed state machine:
   CREATED → ANALYZING → WAITING_FOR_APPROVAL → APPROVED → ASSIGNED → RUNNING → QA → COMPLETED
                                                                                     ↘ FAILED
 Any state may transition to FAILED.
+
+Extended capabilities:
+- Resume from FAILED state by re-entering the preceding active state.
+- Retry a transition up to *max_attempts* times with exponential back-off.
 """
 from __future__ import annotations
 
+import asyncio
 from typing import TYPE_CHECKING
+
+from tenacity import AsyncRetrying, retry_if_exception_type, stop_after_attempt, wait_exponential
 
 from backend.app.core.exceptions import AppError
 from backend.app.core.logging import get_logger
@@ -32,8 +39,13 @@ _TRANSITIONS: dict[TaskStatus, frozenset[TaskStatus]] = {
     TaskStatus.RUNNING: frozenset({TaskStatus.QA, TaskStatus.FAILED}),
     TaskStatus.QA: frozenset({TaskStatus.COMPLETED, TaskStatus.RUNNING, TaskStatus.FAILED}),
     TaskStatus.COMPLETED: frozenset(),
-    TaskStatus.FAILED: frozenset(),
+    TaskStatus.FAILED: frozenset({TaskStatus.ANALYZING}),  # resume entry point
 }
+
+# Map each terminal-before-failure status to the resume target.
+# When a task is in FAILED, resume() re-enters ANALYZING so the workflow
+# can be restarted from the analysis stage.
+_RESUME_TARGET: TaskStatus = TaskStatus.ANALYZING
 
 
 class WorkflowTransitionError(AppError):
@@ -58,6 +70,10 @@ class WorkflowEngine:
     Usage::
         engine = WorkflowEngine(db=session, event_bus=bus)
         await engine.transition(task, TaskStatus.ANALYZING)
+        # resume a failed task
+        await engine.resume(task)
+        # transition with automatic retry
+        await engine.transition_with_retry(task, TaskStatus.RUNNING)
     """
 
     def __init__(self, db: AsyncSession, event_bus: EventBus | None = None) -> None:
@@ -100,6 +116,51 @@ class WorkflowEngine:
             )
 
         return task
+
+    async def resume(
+        self,
+        task: Task,
+        *,
+        metadata: dict[str, object] | None = None,
+    ) -> Task:
+        """Resume a FAILED task by re-entering the workflow at the analysis stage.
+
+        Raises WorkflowTransitionError if the task is not in FAILED state.
+        """
+        if task.status != TaskStatus.FAILED:
+            raise WorkflowTransitionError(task.status, _RESUME_TARGET)
+
+        logger.info("workflow.resume", task_id=task.id, resume_target=_RESUME_TARGET)
+        return await self.transition(
+            task,
+            _RESUME_TARGET,
+            metadata={"resumed": True, **(metadata or {})},
+        )
+
+    async def transition_with_retry(
+        self,
+        task: Task,
+        new_status: TaskStatus,
+        *,
+        max_attempts: int = 3,
+        wait_min: float = 1.0,
+        wait_max: float = 10.0,
+        metadata: dict[str, object] | None = None,
+    ) -> Task:
+        """Attempt a transition, retrying on transient errors.
+
+        Only retries on :class:`OSError` and :class:`asyncio.TimeoutError` so
+        that :class:`WorkflowTransitionError` (invalid state) is never retried.
+        """
+        async for attempt in AsyncRetrying(
+            stop=stop_after_attempt(max_attempts),
+            wait=wait_exponential(min=wait_min, max=wait_max),
+            retry=retry_if_exception_type((OSError, asyncio.TimeoutError)),
+            reraise=True,
+        ):
+            with attempt:
+                return await self.transition(task, new_status, metadata=metadata)
+        raise RuntimeError("transition_with_retry exited without result")  # pragma: no cover
 
     def can_transition(self, from_status: TaskStatus, to_status: TaskStatus) -> bool:
         """Return True if the transition is permitted."""

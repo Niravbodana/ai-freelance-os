@@ -151,13 +151,22 @@ class BaseAgent(abc.ABC):
         )
         response = await provider.complete(request)
 
-        # Track token usage in the agent run if we have a DB row.
+        # Track token usage and estimated cost.
+        from backend.app.core.metrics import record_llm_usage
+
+        cost = record_llm_usage(
+            provider=response.provider,
+            model=response.model,
+            input_tokens=response.input_tokens,
+            output_tokens=response.output_tokens,
+        )
         self._logger.debug(
             "agent.llm_call",
             provider=response.provider,
             model=response.model,
             input_tokens=response.input_tokens,
             output_tokens=response.output_tokens,
+            cost_usd=cost,
         )
         return response.content
 

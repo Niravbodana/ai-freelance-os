@@ -3,17 +3,32 @@
 Each queue is a Redis list. Jobs are serialised as JSON.
 Workers pull jobs using BLPOP for blocking consumption.
 
+Priority Queue
+--------------
+:class:`PriorityTaskQueue` uses a Redis sorted set where the score encodes
+both priority and insertion order::
+
+    score = priority_level * 1e12 + monotonic_counter
+
+A *lower* score is dequeued first (ZPOPMIN), so ``priority=0`` runs before
+``priority=1``. Use the :class:`JobPriority` constants for readability.
+
 Usage::
     queue = TaskQueue(name="tasks")
     job_id = await queue.enqueue({"task_id": "...", "agent_type": "ceo"})
     job = await queue.dequeue(timeout=5)
+
+    pqueue = PriorityTaskQueue(name="priority_tasks")
+    await pqueue.enqueue({"task_id": "..."}, priority=JobPriority.HIGH)
+    job = await pqueue.dequeue(timeout=5)
 """
 from __future__ import annotations
 
 import json
+import time
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
-from enum import StrEnum
+from enum import IntEnum, StrEnum
 from typing import Any
 from uuid import uuid4
 
@@ -34,6 +49,15 @@ class JobStatus(StrEnum):
     COMPLETED = "completed"
     FAILED = "failed"
     DEAD_LETTER = "dead_letter"
+
+
+class JobPriority(IntEnum):
+    """Lower value = higher urgency."""
+
+    CRITICAL = 0
+    HIGH = 1
+    MEDIUM = 2
+    LOW = 3
 
 
 @dataclass
@@ -79,7 +103,7 @@ class Job:
         return obj
 
 
-# ── Queue ─────────────────────────────────────────────────────────────────────
+# ── FIFO queue ────────────────────────────────────────────────────────────────
 
 
 class TaskQueue:
@@ -175,6 +199,134 @@ class TaskQueue:
     async def depth(self) -> int:
         """Return the current number of pending jobs."""
         return await self._redis.llen(self.key)
+
+    async def close(self) -> None:
+        await self._redis.aclose()
+
+
+# ── Priority queue ────────────────────────────────────────────────────────────
+
+# Scale factor: reserving 12 decimal digits for the monotonic counter keeps
+# priorities strictly separated (each priority band can hold up to 10^12 jobs).
+_PRIORITY_SCALE = 1_000_000_000_000
+
+
+class PriorityTaskQueue:
+    """Redis sorted-set priority queue.
+
+    Jobs with a lower ``priority`` value (see :class:`JobPriority`) are
+    dequeued first.  Within the same priority, jobs are served FIFO using a
+    time-based tiebreaker.
+
+    The dead-letter queue is a plain Redis list (``queue:<name>:dead_letter``)
+    shared with :class:`TaskQueue` for operational consistency.
+    """
+
+    DEAD_LETTER_SUFFIX = ":dead_letter"
+
+    def __init__(
+        self,
+        name: str | None = None,
+        redis_url: str | None = None,
+    ) -> None:
+        self._name = (name or settings.queue_default_name) + ":priority"
+        self._redis: aioredis.Redis = aioredis.from_url(
+            redis_url or settings.redis_url,
+            decode_responses=True,
+        )
+
+    @property
+    def key(self) -> str:
+        return f"queue:{self._name}"
+
+    @property
+    def dead_letter_key(self) -> str:
+        return f"queue:{self._name}{self.DEAD_LETTER_SUFFIX}"
+
+    async def enqueue(
+        self,
+        payload: dict[str, Any],
+        priority: int = JobPriority.MEDIUM,
+        max_attempts: int | None = None,
+    ) -> Job:
+        """Push a job with *priority* (lower = higher urgency)."""
+        job = Job(
+            payload=payload,
+            queue_name=self._name,
+            max_attempts=max_attempts or settings.queue_max_retries,
+        )
+        # score encodes priority band + sub-second insertion timestamp
+        score = priority * _PRIORITY_SCALE + time.time()
+        await self._redis.zadd(self.key, {job.to_json(): score})
+        depth = await self._redis.zcard(self.key)
+        QUEUE_JOBS_ENQUEUED.labels(queue_name=self._name).inc()
+        QUEUE_DEPTH.labels(queue_name=self._name).set(depth)
+        logger.info(
+            "priority_queue.enqueued",
+            queue=self._name,
+            job_id=job.job_id,
+            priority=priority,
+        )
+        return job
+
+    async def dequeue(self, timeout: int = 0) -> Job | None:
+        """Pop the highest-priority (lowest score) job.
+
+        Polls up to *timeout* seconds when the queue is empty (0 = non-blocking).
+        """
+        import asyncio
+
+        deadline = time.time() + timeout if timeout > 0 else None
+        while True:
+            result = await self._redis.zpopmin(self.key, count=1)
+            if result:
+                raw, _score = result[0]
+                job = Job.from_json(raw)
+                depth = await self._redis.zcard(self.key)
+                QUEUE_DEPTH.labels(queue_name=self._name).set(depth)
+                logger.debug(
+                    "priority_queue.dequeued", queue=self._name, job_id=job.job_id
+                )
+                return job
+
+            if deadline is None or time.time() >= deadline:
+                return None
+            await asyncio.sleep(0.1)
+
+    async def complete(self, job: Job) -> None:
+        job.status = JobStatus.COMPLETED
+        QUEUE_JOBS_PROCESSED.labels(queue_name=self._name, status="completed").inc()
+        logger.info("priority_queue.job_completed", queue=self._name, job_id=job.job_id)
+
+    async def fail(self, job: Job, error: str) -> None:
+        """Mark job as failed; dead-letter if retries are exhausted."""
+        job.attempt += 1
+        job.error = error
+
+        if job.attempt >= job.max_attempts:
+            job.status = JobStatus.DEAD_LETTER
+            await self._redis.rpush(self.dead_letter_key, job.to_json())
+            QUEUE_JOBS_PROCESSED.labels(queue_name=self._name, status="dead_letter").inc()
+            logger.warning(
+                "priority_queue.job_dead_lettered",
+                queue=self._name,
+                job_id=job.job_id,
+                attempts=job.attempt,
+            )
+        else:
+            job.status = JobStatus.PENDING
+            score = JobPriority.MEDIUM * _PRIORITY_SCALE + time.time()
+            await self._redis.zadd(self.key, {job.to_json(): score})
+            QUEUE_JOBS_PROCESSED.labels(queue_name=self._name, status="retried").inc()
+            logger.warning(
+                "priority_queue.job_retried",
+                queue=self._name,
+                job_id=job.job_id,
+                attempt=job.attempt,
+            )
+
+    async def depth(self) -> int:
+        return await self._redis.zcard(self.key)
 
     async def close(self) -> None:
         await self._redis.aclose()

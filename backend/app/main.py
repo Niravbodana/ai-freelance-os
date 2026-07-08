@@ -8,6 +8,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from backend.app.api.v1.router import api_router
 from backend.app.config import settings
 from backend.app.core.logging import configure_logging
+from backend.app.core.tracing import TraceMiddleware
 from backend.app.db.base import Base
 from backend.app.db.session import engine
 
@@ -27,9 +28,15 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     from backend.app.core.events import get_event_bus
     get_event_bus()
 
+    # Start scheduler
+    from backend.app.core.scheduler import get_scheduler
+    scheduler = get_scheduler()
+    await scheduler.start()
+
     yield
 
     # Graceful shutdown
+    await scheduler.stop()
     await engine.dispose()
 
 
@@ -42,6 +49,7 @@ app = FastAPI(
     redoc_url="/redoc" if settings.app_debug else None,
 )
 
+app.add_middleware(TraceMiddleware)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
