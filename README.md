@@ -182,6 +182,45 @@ Stripe/Razorpay keys and SMTP are optional to get started — without them,
 invoices are tracked as `MANUAL` (no auto link) and notifications just log
 to the console.
 
+## Deploying (Railway)
+
+This repo runs as one service: the built dashboard is served by the same
+Express process as the API (`server/src/index.js` serves `client/dist`),
+so one deploy = one URL, and the dashboard's login works via a plain
+browser prompt with no cross-origin complexity. `railway.json` at the repo
+root already tells Railway how to build/start both halves.
+
+1. **Get an Anthropic API key** — console.anthropic.com → sign up/sign in
+   (needs your own email/payment method for API billing — this step can't
+   be done on your behalf) → Settings → API Keys → Create Key. Copy it.
+2. **Deploy on Railway** — railway.app → sign in with GitHub → New Project
+   → Deploy from GitHub repo → pick this repo. Then:
+   - **Add Postgres**: in the project, "New" → "Database" → "Add
+     PostgreSQL". Railway creates a `DATABASE_URL` automatically.
+   - On the app service's **Variables** tab, add a reference to the
+     Postgres service's `DATABASE_URL` (Railway's "Add variable reference"
+     button does this), then add the rest by hand: `ANTHROPIC_API_KEY`,
+     `DASHBOARD_USER`, `DASHBOARD_PASSWORD` (pick your own login — this is
+     what protects the whole dashboard, see below), and any of
+     `SMTP_*`/`OWNER_EMAIL`/`IMAP_*`/`STRIPE_SECRET_KEY`/
+     `RAZORPAY_KEY_ID`/`RAZORPAY_KEY_SECRET`/`FREELANCER_OAUTH_TOKEN`/
+     `FREELANCER_USER_ID` you're ready to set (see `.env.example` for the
+     full list and what each does — all except the first four are
+     optional and can be added later).
+   - Railway auto-deploys on push to this branch/repo from here on.
+3. **Gmail App Password** (for `SMTP_*`/`IMAP_*`, i.e. notifications + the
+   Inbox Agent) — needs 2-Step Verification turned on first: Google
+   Account → Security → 2-Step Verification → App passwords → generate one
+   for "Mail". Use that 16-character password for both `SMTP_PASS` and
+   `IMAP_PASS` (not your normal Gmail password — Google blocks that for
+   this). See `.env.example` for the exact Gmail host/port values.
+
+**Security note**: `DASHBOARD_USER`/`DASHBOARD_PASSWORD` are required for
+any deploy reachable from the internet — without them the dashboard and
+every API action (creating jobs, approving proposals, marking payments
+paid) has no login at all. The server logs a loud warning on startup if
+they're unset; that's a real gap, not a convenience default.
+
 ## Roadmap
 
 - [ ] Verify Claude per-token pricing in `.env` against your actual plan (defaults are placeholders)
