@@ -1,0 +1,22 @@
+const BASE = "/api";
+
+async function request(path, options) {
+  const res = await fetch(`${BASE}${path}`, {
+    headers: { "Content-Type": "application/json" },
+    ...options,
+  });
+  if (!res.ok) throw new Error(await res.text());
+  return res.json();
+}
+
+export const api = {
+  listJobs: (status) => request(`/jobs${status ? `?status=${status}` : ""}`),
+  createJob: (job) => request("/jobs", { method: "POST", body: JSON.stringify(job) }),
+  draftProposal: (id) => request(`/jobs/${id}/draft-proposal`, { method: "POST" }),
+  approveProposal: (id, editedText) =>
+    request(`/jobs/${id}/approve-proposal`, { method: "POST", body: JSON.stringify({ editedText }) }),
+  runWorker: (id) => request(`/jobs/${id}/run-worker`, { method: "POST" }),
+  runDelivery: (id) => request(`/jobs/${id}/run-delivery`, { method: "POST" }),
+  runHunter: () => request(`/agents/hunter/run`, { method: "POST" }),
+  listRuns: () => request(`/agents/runs`),
+};

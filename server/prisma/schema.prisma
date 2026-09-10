@@ -1,0 +1,96 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum JobSource {
+  UPWORK
+  OUTREACH
+  MANUAL
+}
+
+enum JobStatus {
+  DISCOVERED
+  PROPOSAL_DRAFTED
+  PENDING_APPROVAL
+  PROPOSAL_SENT
+  ACCEPTED
+  IN_PROGRESS
+  DELIVERED
+  REJECTED
+  CLOSED
+}
+
+model Client {
+  id        String   @id @default(cuid())
+  name      String
+  email     String?
+  platform  JobSource
+  notes     String?
+  createdAt DateTime @default(now())
+  jobs      Job[]
+}
+
+model Job {
+  id           String     @id @default(cuid())
+  source       JobSource
+  externalUrl  String?
+  title        String
+  description  String
+  budget       String?
+  category     String
+  status       JobStatus  @default(DISCOVERED)
+  matchScore   Float?
+  client       Client?    @relation(fields: [clientId], references: [id])
+  clientId     String?
+  createdAt    DateTime   @default(now())
+  updatedAt    DateTime   @updatedAt
+
+  proposal     Proposal?
+  deliverable  Deliverable?
+  agentRuns    AgentRun[]
+}
+
+model Proposal {
+  id           String   @id @default(cuid())
+  job          Job      @relation(fields: [jobId], references: [id])
+  jobId        String   @unique
+  draftText    String
+  editedText   String?
+  approved     Boolean  @default(false)
+  approvedAt   DateTime?
+  sentAt       DateTime?
+  createdAt    DateTime @default(now())
+}
+
+model Deliverable {
+  id          String   @id @default(cuid())
+  job         Job      @relation(fields: [jobId], references: [id])
+  jobId       String   @unique
+  content     String
+  qaPassed    Boolean  @default(false)
+  deliveredAt DateTime?
+  createdAt   DateTime @default(now())
+}
+
+enum AgentType {
+  HUNTER
+  PROPOSAL
+  WORKER
+  DELIVERY
+}
+
+model AgentRun {
+  id        String    @id @default(cuid())
+  agent     AgentType
+  job       Job?      @relation(fields: [jobId], references: [id])
+  jobId     String?
+  status    String
+  log       String?
+  startedAt DateTime  @default(now())
+  finishedAt DateTime?
+}
