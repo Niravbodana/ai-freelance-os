@@ -2,6 +2,8 @@ import { prisma } from "../db/client.js";
 import { checkFeasibility } from "./feasibilityAgent.js";
 import { draftProposal } from "./proposalAgent.js";
 import { remoteOkAdapter, weWorkRemotelyAdapter } from "./sources/remoteJobBoards.js";
+import { freelancerComAdapter } from "./sources/freelancerCom.js";
+import { guruComAdapter } from "./sources/guruCom.js";
 
 /**
  * Hunter Agent — discovers new jobs from pluggable sources.
@@ -30,6 +32,10 @@ registerJobSource(async function upworkStub() {
 
 registerJobSource(remoteOkAdapter);
 registerJobSource(weWorkRemotelyAdapter);
+// No-ops until FREELANCER_OAUTH_TOKEN / GURU_API_KEY are configured — see
+// each adapter's file for what's needed to activate it.
+registerJobSource(freelancerComAdapter);
+registerJobSource(guruComAdapter);
 
 export async function runHunterAgent() {
   const run = await prisma.agentRun.create({
@@ -63,6 +69,7 @@ export async function runHunterAgent() {
             budget: job.budget,
             category: job.category,
             applyEmail: job.applyEmail ?? null,
+            externalMeta: job.meta ?? undefined,
             status: "DISCOVERED",
           },
         });

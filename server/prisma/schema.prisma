@@ -55,6 +55,7 @@ model Job {
   feasible     Boolean?
   feasibilityNote String?
   applyEmail   String?
+  externalMeta Json?
   client       Client?    @relation(fields: [clientId], references: [id])
   clientId     String?
   createdAt    DateTime   @default(now())

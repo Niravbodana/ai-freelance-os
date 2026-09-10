@@ -21,4 +21,5 @@ export const api = {
   markPaid: (id) => request(`/jobs/${id}/mark-paid`, { method: "POST" }),
   runHunter: () => request(`/agents/hunter/run`, { method: "POST" }),
   listRuns: () => request(`/agents/runs`),
+  stats: () => request(`/stats`),
 };
