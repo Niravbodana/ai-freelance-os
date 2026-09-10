@@ -1,5 +1,6 @@
 import { prisma } from "../db/client.js";
 import { askClaude } from "../services/claude.js";
+import { notifications } from "../services/notify.js";
 
 const QA_SYSTEM_PROMPT = `You are a strict QA reviewer for freelance deliverables.
 Compare the deliverable against the client brief. Reply with exactly one word,
@@ -41,6 +42,10 @@ export async function runDeliveryAgent(jobId) {
       where: { id: jobId },
       data: { status: qaPassed ? "DELIVERED" : "IN_PROGRESS" },
     });
+
+    if (!qaPassed) {
+      await notifications.deliveryQaFailed(job, verdict);
+    }
 
     await prisma.agentRun.update({
       where: { id: run.id },

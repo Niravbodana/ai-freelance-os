@@ -26,7 +26,14 @@ export default function JobCard({ job, onChanged }) {
       <p style={{ color: "#555", fontSize: 14 }}>{job.description}</p>
       <div style={{ fontSize: 12, color: "#888", marginBottom: 8 }}>
         {job.category} · {job.source} · {job.budget || "no budget listed"}
+        {job.client?.isRecurring && <span style={{ color: "#0a7", marginLeft: 8 }}>★ recurring client</span>}
       </div>
+
+      {job.status === "NOT_FEASIBLE" && (
+        <p style={{ fontSize: 13, color: "#a33" }}>
+          Skipped — not something we can reliably deliver. Reason: {job.feasibilityNote}
+        </p>
+      )}
 
       {job.status === "DISCOVERED" && (
         <button disabled={busy} onClick={() => run(() => api.draftProposal(job.id))}>
@@ -36,6 +43,9 @@ export default function JobCard({ job, onChanged }) {
 
       {job.status === "PENDING_APPROVAL" && job.proposal && (
         <div>
+          {job.proposal.proposedRate && (
+            <p style={{ fontSize: 13 }}>Proposed rate: <strong>{job.proposal.proposedRate}</strong></p>
+          )}
           <textarea
             value={editedText}
             onChange={(e) => setEditedText(e.target.value)}
@@ -43,13 +53,16 @@ export default function JobCard({ job, onChanged }) {
             style={{ width: "100%", padding: 6, marginBottom: 8 }}
           />
           <button disabled={busy} onClick={() => run(() => api.approveProposal(job.id, editedText))}>
-            Approve & mark sent
+            Approve & send
           </button>
         </div>
       )}
 
       {job.status === "PROPOSAL_SENT" && (
-        <p style={{ fontSize: 13 }}>Waiting on client acceptance — flip to ACCEPTED manually once they reply.</p>
+        <p style={{ fontSize: 13 }}>
+          {job.proposal?.autoSent ? "Auto-sent (own outreach channel)." : "Sent — waiting on client reply."}
+          {" "}Flip to ACCEPTED manually once they reply.
+        </p>
       )}
 
       {(job.status === "ACCEPTED" || job.status === "IN_PROGRESS") && (
@@ -72,7 +85,35 @@ export default function JobCard({ job, onChanged }) {
         </div>
       )}
 
-      {job.status === "DELIVERED" && <p style={{ color: "green", fontSize: 13 }}>Delivered ✓ QA passed.</p>}
+      {job.status === "DELIVERED" && !job.payment && (
+        <div>
+          <p style={{ color: "green", fontSize: 13 }}>Delivered ✓ QA passed. Ready to invoice.</p>
+          <button disabled={busy} onClick={() => run(() => api.invoiceJob(job.id))}>
+            Send invoice
+          </button>
+        </div>
+      )}
+
+      {job.status === "AWAITING_PAYMENT" && job.payment && (
+        <div>
+          <p style={{ fontSize: 13 }}>
+            Invoiced {job.payment.amount} {job.payment.currency} via {job.payment.provider}
+            {job.payment.status === "OVERDUE" && <span style={{ color: "#a33" }}> — overdue, reminder sent</span>}
+          </p>
+          {job.payment.invoiceUrl && (
+            <a href={job.payment.invoiceUrl} target="_blank" rel="noreferrer">
+              View invoice
+            </a>
+          )}
+          <div>
+            <button disabled={busy} onClick={() => run(() => api.markPaid(job.id))}>
+              Mark paid
+            </button>
+          </div>
+        </div>
+      )}
+
+      {job.status === "PAID" && <p style={{ color: "green", fontSize: 13 }}>Paid ✓</p>}
     </div>
   );
 }

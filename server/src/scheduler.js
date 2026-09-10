@@ -1,11 +1,14 @@
 import cron from "node-cron";
 import { runHunterAgent } from "./agents/hunterAgent.js";
+import { sweepOverduePayments } from "./agents/paymentAgent.js";
 
 /**
- * The 24x7 loop. Hunter Agent polls all registered job sources every
- * 15 minutes. Proposal/Worker/Delivery stay human-triggered from the
- * dashboard for the MVP (approval-gated by design), but wiring them into
- * this same cron once trust is established is a one-line change.
+ * The 24x7 loop.
+ * - Hunter Agent (discover → feasibility-gate → draft/auto-send) every 15 min.
+ * - Payment sweep (chase overdue invoices) every 6 hours.
+ * Worker/Delivery/invoicing stay a chain triggered from the dashboard once a
+ * job is ACCEPTED — a client saying "yes" is the one event we can't source
+ * automatically without their reply, everything after it can run unattended.
  */
 export function startScheduler() {
   cron.schedule("*/15 * * * *", async () => {
@@ -15,5 +18,14 @@ export function startScheduler() {
       console.error("[scheduler] hunter agent run failed:", err);
     }
   });
-  console.log("[scheduler] Hunter Agent scheduled every 15 minutes");
+
+  cron.schedule("0 */6 * * *", async () => {
+    try {
+      await sweepOverduePayments();
+    } catch (err) {
+      console.error("[scheduler] payment sweep failed:", err);
+    }
+  });
+
+  console.log("[scheduler] Hunter Agent every 15 min, payment sweep every 6 hours");
 }

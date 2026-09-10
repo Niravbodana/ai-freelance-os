@@ -1,4 +1,6 @@
 import { prisma } from "../db/client.js";
+import { checkFeasibility } from "./feasibilityAgent.js";
+import { draftProposal } from "./proposalAgent.js";
 
 /**
  * Hunter Agent — discovers new jobs from pluggable sources.
@@ -35,7 +37,7 @@ export async function runHunterAgent() {
           : null;
         if (exists) continue;
 
-        await prisma.job.create({
+        const created = await prisma.job.create({
           data: {
             source: job.source,
             externalUrl: job.externalUrl,
@@ -47,6 +49,14 @@ export async function runHunterAgent() {
           },
         });
         discovered += 1;
+
+        // Every newly discovered job is gated by feasibility before a
+        // proposal is ever drafted — "if we can deliver it, take it; if not,
+        // skip it" is enforced here, not left to a human to remember.
+        const { feasible } = await checkFeasibility(created.id);
+        if (feasible) {
+          await draftProposal(created.id);
+        }
       }
     }
 

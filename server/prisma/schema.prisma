@@ -15,24 +15,28 @@ enum JobSource {
 
 enum JobStatus {
   DISCOVERED
+  NOT_FEASIBLE
   PROPOSAL_DRAFTED
   PENDING_APPROVAL
   PROPOSAL_SENT
   ACCEPTED
   IN_PROGRESS
   DELIVERED
+  AWAITING_PAYMENT
+  PAID
   REJECTED
   CLOSED
 }
 
 model Client {
-  id        String   @id @default(cuid())
-  name      String
-  email     String?
-  platform  JobSource
-  notes     String?
-  createdAt DateTime @default(now())
-  jobs      Job[]
+  id          String   @id @default(cuid())
+  name        String
+  email       String?
+  platform    JobSource
+  notes       String?
+  isRecurring Boolean  @default(false)
+  createdAt   DateTime @default(now())
+  jobs        Job[]
 }
 
 model Job {
@@ -45,6 +49,8 @@ model Job {
   category     String
   status       JobStatus  @default(DISCOVERED)
   matchScore   Float?
+  feasible     Boolean?
+  feasibilityNote String?
   client       Client?    @relation(fields: [clientId], references: [id])
   clientId     String?
   createdAt    DateTime   @default(now())
@@ -52,19 +58,52 @@ model Job {
 
   proposal     Proposal?
   deliverable  Deliverable?
+  payment      Payment?
   agentRuns    AgentRun[]
 }
 
 model Proposal {
-  id           String   @id @default(cuid())
-  job          Job      @relation(fields: [jobId], references: [id])
-  jobId        String   @unique
-  draftText    String
-  editedText   String?
-  approved     Boolean  @default(false)
-  approvedAt   DateTime?
-  sentAt       DateTime?
-  createdAt    DateTime @default(now())
+  id             String    @id @default(cuid())
+  job            Job       @relation(fields: [jobId], references: [id])
+  jobId          String    @unique
+  draftText      String
+  editedText     String?
+  proposedRate   String?
+  autoSent       Boolean   @default(false)
+  approved       Boolean   @default(false)
+  approvedAt     DateTime?
+  sentAt         DateTime?
+  negotiationLog String?
+  createdAt      DateTime  @default(now())
+}
+
+enum PaymentProvider {
+  STRIPE
+  RAZORPAY
+  MANUAL
+}
+
+enum PaymentStatus {
+  PENDING
+  INVOICE_SENT
+  PAID
+  OVERDUE
+}
+
+model Payment {
+  id             String        @id @default(cuid())
+  job            Job           @relation(fields: [jobId], references: [id])
+  jobId          String        @unique
+  provider       PaymentProvider
+  amount         Float
+  currency       String        @default("USD")
+  status         PaymentStatus @default(PENDING)
+  invoiceUrl     String?
+  dueDate        DateTime?
+  lastReminderAt DateTime?
+  reminderCount  Int           @default(0)
+  paidAt         DateTime?
+  createdAt      DateTime      @default(now())
 }
 
 model Deliverable {
@@ -79,9 +118,11 @@ model Deliverable {
 
 enum AgentType {
   HUNTER
+  FEASIBILITY
   PROPOSAL
   WORKER
   DELIVERY
+  PAYMENT
 }
 
 model AgentRun {

@@ -17,6 +17,8 @@ export const api = {
     request(`/jobs/${id}/approve-proposal`, { method: "POST", body: JSON.stringify({ editedText }) }),
   runWorker: (id) => request(`/jobs/${id}/run-worker`, { method: "POST" }),
   runDelivery: (id) => request(`/jobs/${id}/run-delivery`, { method: "POST" }),
+  invoiceJob: (id, body) => request(`/jobs/${id}/invoice`, { method: "POST", body: JSON.stringify(body || {}) }),
+  markPaid: (id) => request(`/jobs/${id}/mark-paid`, { method: "POST" }),
   runHunter: () => request(`/agents/hunter/run`, { method: "POST" }),
   listRuns: () => request(`/agents/runs`),
 };
