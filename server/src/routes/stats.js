@@ -3,12 +3,9 @@ import { prisma } from "../db/client.js";
 import { getRateLimitSnapshot } from "../services/claude.js";
 import { getPerformanceByCategory } from "../services/performance.js";
 import { asyncHandler } from "../utils/asyncHandler.js";
+import { getConfig } from "../services/config.js";
 
 export const statsRouter = Router();
-
-const MONTHLY_BUDGET_USD = process.env.CLAUDE_MONTHLY_BUDGET_USD
-  ? Number(process.env.CLAUDE_MONTHLY_BUDGET_USD)
-  : null;
 
 /**
  * One call for everything the dashboard's summary bar needs — job counts by
@@ -52,6 +49,9 @@ statsRouter.get(
 
     const byStatus = Object.fromEntries(statusCounts.map((s) => [s.status, s._count.status]));
     const costUsed = usageThisMonth._sum.costUsd || 0;
+    const monthlyBudgetUsd = getConfig("CLAUDE_MONTHLY_BUDGET_USD")
+      ? Number(getConfig("CLAUDE_MONTHLY_BUDGET_USD"))
+      : null;
 
     res.json({
       jobsByStatus: byStatus,
@@ -66,8 +66,8 @@ statsRouter.get(
         inputTokensThisMonth: usageThisMonth._sum.inputTokens || 0,
         outputTokensThisMonth: usageThisMonth._sum.outputTokens || 0,
         estimatedCostThisMonth: costUsed,
-        monthlyBudgetUsd: MONTHLY_BUDGET_USD,
-        budgetRemainingUsd: MONTHLY_BUDGET_USD != null ? MONTHLY_BUDGET_USD - costUsed : null,
+        monthlyBudgetUsd,
+        budgetRemainingUsd: monthlyBudgetUsd != null ? monthlyBudgetUsd - costUsed : null,
         // Real, live data straight from the API's own rate-limit headers —
         // null until the first Claude call of this process has run.
         apiRateLimit: getRateLimitSnapshot(),

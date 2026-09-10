@@ -185,3 +185,15 @@ model InboxState {
   mailbox String @unique
   lastUid Int    @default(0)
 }
+
+// Every credential except the bootstrap set (DATABASE_URL, DASHBOARD_USER/
+// PASSWORD, ENCRYPTION_KEY — needed before the app can even read this
+// table) lives here instead of an env var, entered through Admin Settings.
+// `value` is AES-256-GCM ciphertext (see services/crypto.js), never
+// plaintext — even a DB dump doesn't leak a usable key without
+// ENCRYPTION_KEY too.
+model Setting {
+  key       String   @id
+  value     String
+  updatedAt DateTime @updatedAt
+}

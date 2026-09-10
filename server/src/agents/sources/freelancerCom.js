@@ -1,4 +1,5 @@
 import { fetchWithTimeout } from "../../services/httpFetch.js";
+import { getConfig } from "../../services/config.js";
 
 /**
  * Freelancer.com official API (developers.freelancer.com) — self-service
@@ -17,7 +18,7 @@ import { fetchWithTimeout } from "../../services/httpFetch.js";
 const BASE = "https://www.freelancer.com/api/projects/0.1";
 
 function authHeaders() {
-  const token = process.env.FREELANCER_OAUTH_TOKEN;
+  const token = getConfig("FREELANCER_OAUTH_TOKEN");
   return token ? { "Freelancer-OAuth-V1": token } : null;
 }
 
@@ -54,7 +55,7 @@ export async function freelancerComAdapter() {
  */
 export async function placeFreelancerBid({ projectId, amount, description }) {
   const headers = authHeaders();
-  const bidderId = process.env.FREELANCER_USER_ID;
+  const bidderId = getConfig("FREELANCER_USER_ID");
   if (!headers || !bidderId) return { placed: false, reason: "FREELANCER_OAUTH_TOKEN/FREELANCER_USER_ID not set" };
 
   const res = await fetchWithTimeout(`${BASE}/bids/`, {

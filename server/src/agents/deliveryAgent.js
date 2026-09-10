@@ -1,5 +1,5 @@
 import { prisma } from "../db/client.js";
-import { askClaude } from "../services/claude.js";
+import { askClaude, MODELS } from "../services/claude.js";
 import { notifications } from "../services/notify.js";
 import { recordIncident, registerRetryHandler } from "../services/incidents.js";
 
@@ -31,7 +31,8 @@ export async function runDeliveryAgent(jobId) {
       QA_SYSTEM_PROMPT,
       `Client brief:\n${job.description}\n\nDeliverable:\n${job.deliverable.content}`,
       100,
-      { agent: "DELIVERY", jobId }
+      { agent: "DELIVERY", jobId },
+      { model: MODELS.CLASSIFY }
     );
     const qaPassed = verdict.trim().toUpperCase().startsWith("PASS");
 

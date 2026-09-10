@@ -1,6 +1,6 @@
 import { prisma } from "../db/client.js";
 import { fetchNewEmails } from "../services/inbox.js";
-import { askClaude } from "../services/claude.js";
+import { askClaude, MODELS } from "../services/claude.js";
 import { recordProposalOutcome } from "./proposalAgent.js";
 import { notifyOwner } from "../services/notify.js";
 import { recordIncident } from "../services/incidents.js";
@@ -46,7 +46,8 @@ export async function processInbox() {
           CLASSIFY_PROMPT,
           `Original job: ${job.title}\n${job.description.slice(0, 1000)}\n\nOur proposed rate: ${job.proposal?.proposedRate ?? "n/a"}\n\nClient's reply:\nSubject: ${email.subject}\n${email.text}`,
           400,
-          { agent: "INBOX", jobId: job.id }
+          { agent: "INBOX", jobId: job.id },
+          { model: MODELS.CLASSIFY }
         );
         const [intentLine, detailLine] = verdict.trim().split("\n");
         const intent = (intentLine || "").trim().toUpperCase();

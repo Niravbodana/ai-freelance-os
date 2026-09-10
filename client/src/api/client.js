@@ -29,4 +29,8 @@ export const api = {
   listIncidents: (status) => request(`/incidents${status ? `?status=${status}` : ""}`),
   resolveIncident: (id) => request(`/incidents/${id}/resolve`, { method: "POST" }),
   retryIncidentsNow: () => request(`/incidents/retry-now`, { method: "POST" }),
+  getSettings: () => request(`/admin/settings`),
+  saveSettings: (values) => request(`/admin/settings`, { method: "POST", body: JSON.stringify(values) }),
+  clearSetting: (key) => request(`/admin/settings/${key}/clear`, { method: "POST" }),
+  testSetting: (key) => request(`/admin/settings/${key}/test`, { method: "POST" }),
 };

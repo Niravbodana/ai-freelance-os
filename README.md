@@ -111,8 +111,9 @@ shows the same numbers, so this isn't a black box.
 
 ## Command centre dashboard
 
-`GET /api/stats` (the summary bar at the top of the dashboard, auto-
-refreshing every 30s) gives a one-glance view of the whole operation:
+A dark, HUD-style dashboard (three tabs: Command Centre, Jobs, Admin
+Settings) that auto-refreshes every 30s. `GET /api/stats` (the tile grid at
+the top of Command Centre) gives a one-glance view of the whole operation:
 
 - Jobs needing your approval, jobs in flight/delivered/paid, recurring
   clients, revenue collected vs. outstanding, overdue payments.
@@ -126,6 +127,53 @@ refreshing every 30s) gives a one-glance view of the whole operation:
   the schema and `services/claude.js`.
 - **Incidents**: how many failures are being auto-retried right now vs.
   how many actually need you (`ESCALATED`).
+- **Live Agent Activity** — a terminal-style feed of every agent run
+  (Hunter, Feasibility, Proposal, Worker, Delivery, Payment, Inbox,
+  Pipeline) as it happens, polling independently every 8s.
+
+## Admin Settings — every credential, in one place
+
+The **Admin Settings** tab holds every credential the system uses (Claude
+API key, Gmail SMTP/IMAP, Stripe/Razorpay, Freelancer.com), editable right
+in the dashboard after its own login — no separate admin account, the
+basic-auth prompt you already log into *is* the admin login. Each item
+shows a connected/disconnected status pill and a one-click **Test**
+button that does a real, cheap, read-only connectivity check (SMTP
+`transporter.verify()`, an IMAP connect+logout, a 1-token Claude call, a
+Stripe balance read, etc.) — never sends a real email/proposal/charge.
+
+Values are AES-256-GCM encrypted at rest (`services/crypto.js`) and never
+sent back to the browser in plaintext, only masked (`sk-•••••••key`). A
+setting entered here overrides the matching env var; leaving it unset
+falls back to the env var, so existing Railway env-var configuration
+keeps working untouched — Admin Settings is additive, not required. The
+one exception is the four bootstrap secrets (`DATABASE_URL`,
+`DASHBOARD_USER`, `DASHBOARD_PASSWORD`, `ENCRYPTION_KEY`) which must stay
+env vars — the app needs them before it can even read the database, or as
+the key that unlocks every encrypted value stored there.
+
+## Cost optimization
+
+Two real levers, not the obvious-looking one:
+
+- **Model tiering** (`services/claude.js`): simple, well-scoped
+  classification — feasibility check, delivery QA pass/fail, inbox reply
+  intent — runs on Claude Haiku 4.5 (`MODELS.CLASSIFY`, roughly half
+  Sonnet 5's per-token price). Proposal/content drafting, which is
+  quality-sensitive, stays on Claude Sonnet 5 (`MODELS.GENERATE`).
+- **Thinking disabled** on Sonnet 5 calls: adaptive thinking is on by
+  default and none of this app's calls are multi-step reasoning tasks, so
+  `thinking: {type: "disabled"}` is set explicitly rather than paying for
+  a default that doesn't earn its cost here.
+
+**What's deliberately *not* done**: prompt caching on the system prompts.
+Every system prompt in this app (~100-200 tokens) sits below every
+current model's minimum cacheable prefix (1024 tokens on Sonnet 5, 4096
+on Haiku 4.5), so `cache_control` on them would create zero cache hits —
+`cache_read_input_tokens` would stay 0 forever. Padding prompts just to
+cross that threshold would cost more than it saves. If a future prompt
+genuinely grows past the threshold (e.g. a long style guide or examples
+block), caching becomes worth revisiting.
 
 ## Self-healing (automatic error handling)
 
@@ -157,17 +205,19 @@ just log to the console instead of failing silently.
 ## Stack
 
 - **Backend**: Node/Express + PostgreSQL via Prisma (`server/`)
-- **Frontend**: React + Vite — an approval queue / dashboard (`client/`)
-- **AI**: Claude (Anthropic API) for drafting, negotiation, QA, feasibility
+- **Frontend**: React + Vite — a dark HUD-style command centre (`client/`)
+- **AI**: Claude (Anthropic API) — Sonnet 5 for drafting, Haiku 4.5 for classification (see Cost optimization)
 - **Payments**: Stripe (international) + Razorpay (INR/UPI)
 - **Notifications**: Email (SMTP via nodemailer)
+- **Credentials**: AES-256-GCM encrypted in Postgres, editable from Admin Settings
 
 ## Getting started
 
 ```bash
 # Backend
 cd server
-cp .env.example .env   # fill in DATABASE_URL, ANTHROPIC_API_KEY, SMTP_*, payment keys
+cp .env.example .env   # fill in DATABASE_URL, DASHBOARD_USER/PASSWORD, ENCRYPTION_KEY (bootstrap);
+                        # ANTHROPIC_API_KEY/SMTP/payments can go here too, or wait and set them in Admin Settings
 npm install
 npm run prisma:migrate
 npm run dev             # http://localhost:4000
@@ -199,21 +249,24 @@ root already tells Railway how to build/start both halves.
      PostgreSQL". Railway creates a `DATABASE_URL` automatically.
    - On the app service's **Variables** tab, add a reference to the
      Postgres service's `DATABASE_URL` (Railway's "Add variable reference"
-     button does this), then add the rest by hand: `ANTHROPIC_API_KEY`,
+     button does this), then set the other three bootstrap vars by hand:
      `DASHBOARD_USER`, `DASHBOARD_PASSWORD` (pick your own login — this is
-     what protects the whole dashboard, see below), and any of
-     `SMTP_*`/`OWNER_EMAIL`/`IMAP_*`/`STRIPE_SECRET_KEY`/
-     `RAZORPAY_KEY_ID`/`RAZORPAY_KEY_SECRET`/`FREELANCER_OAUTH_TOKEN`/
-     `FREELANCER_USER_ID` you're ready to set (see `.env.example` for the
-     full list and what each does — all except the first four are
-     optional and can be added later).
+     what protects the whole dashboard, see below) and `ENCRYPTION_KEY`
+     (any random string — it encrypts every credential you enter in Admin
+     Settings, so treat it like a password and don't lose it).
+   - That's it for env vars. `ANTHROPIC_API_KEY` and everything else
+     (SMTP/IMAP, Stripe/Razorpay, Freelancer.com) can now be entered
+     straight into the **Admin Settings** tab after your first login,
+     instead of the Railway dashboard — see below. Setting them as env
+     vars here still works exactly the same if you'd rather.
    - Railway auto-deploys on push to this branch/repo from here on.
-3. **Gmail App Password** (for `SMTP_*`/`IMAP_*`, i.e. notifications + the
-   Inbox Agent) — needs 2-Step Verification turned on first: Google
-   Account → Security → 2-Step Verification → App passwords → generate one
-   for "Mail". Use that 16-character password for both `SMTP_PASS` and
-   `IMAP_PASS` (not your normal Gmail password — Google blocks that for
-   this). See `.env.example` for the exact Gmail host/port values.
+3. **Gmail App Password** (for SMTP/IMAP, i.e. notifications + the Inbox
+   Agent) — needs 2-Step Verification turned on first: Google Account →
+   Security → 2-Step Verification → App passwords → generate one for
+   "Mail". Use that 16-character password for both the SMTP and IMAP
+   password fields (not your normal Gmail password — Google blocks that
+   for this). Enter it in Admin Settings (or `.env.example` has the exact
+   Gmail host/port values if you'd rather use env vars).
 
 **Security note**: `DASHBOARD_USER`/`DASHBOARD_PASSWORD` are required for
 any deploy reachable from the internet — without them the dashboard and

@@ -1,32 +1,33 @@
 import nodemailer from "nodemailer";
+import { getConfig } from "./config.js";
 
 /**
  * Sends every "you need to look at this" event to the owner's email, so
  * approvals, new feasible jobs, and payment problems reach the phone even
- * when nobody is watching the dashboard. One transporter, reused.
+ * when nobody is watching the dashboard. Built fresh per call (not cached)
+ * since SMTP settings can change at runtime via Admin Settings — nodemailer
+ * transport creation is cheap, no network call happens until send/verify.
  */
-let transporter = null;
 function getTransporter() {
-  if (transporter) return transporter;
-  if (!process.env.SMTP_HOST) return null;
-  transporter = nodemailer.createTransport({
-    host: process.env.SMTP_HOST,
-    port: Number(process.env.SMTP_PORT || 587),
-    secure: process.env.SMTP_SECURE === "true",
-    auth: { user: process.env.SMTP_USER, pass: process.env.SMTP_PASS },
+  const host = getConfig("SMTP_HOST");
+  if (!host) return null;
+  return nodemailer.createTransport({
+    host,
+    port: Number(getConfig("SMTP_PORT") || 587),
+    secure: getConfig("SMTP_SECURE") === "true",
+    auth: { user: getConfig("SMTP_USER"), pass: getConfig("SMTP_PASS") },
   });
-  return transporter;
 }
 
 export async function notifyOwner(subject, text) {
   const t = getTransporter();
-  const to = process.env.OWNER_EMAIL;
+  const to = getConfig("OWNER_EMAIL");
   if (!t || !to) {
     console.log(`[notify] (SMTP not configured, logging only) ${subject}: ${text}`);
     return;
   }
   await t.sendMail({
-    from: process.env.SMTP_FROM || process.env.SMTP_USER,
+    from: getConfig("SMTP_FROM") || getConfig("SMTP_USER"),
     to,
     subject: `[AI Freelance OS] ${subject}`,
     text,
@@ -44,7 +45,7 @@ export async function sendProposalEmail({ to, subject, text }) {
     console.log(`[notify] (SMTP not configured, would send to ${to}) ${subject}`);
     return { sent: false };
   }
-  await t.sendMail({ from: process.env.SMTP_FROM || process.env.SMTP_USER, to, subject, text });
+  await t.sendMail({ from: getConfig("SMTP_FROM") || getConfig("SMTP_USER"), to, subject, text });
   return { sent: true };
 }
 

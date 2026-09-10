@@ -8,11 +8,13 @@ export default function PerformancePanel({ data }) {
   if (!data || data.length === 0) return null;
 
   return (
-    <div style={{ border: "1px solid #ddd", borderRadius: 8, padding: 12, marginBottom: 24 }}>
-      <strong style={{ fontSize: 14 }}>Proposal performance by category</strong>
-      <table style={{ width: "100%", fontSize: 13, marginTop: 8, borderCollapse: "collapse" }}>
+    <div className="panel" style={{ marginBottom: 20 }}>
+      <div className="settings-group-title" style={{ marginTop: 0 }}>
+        Proposal Performance by Category
+      </div>
+      <table style={{ width: "100%", fontSize: 12, borderCollapse: "collapse", color: "var(--text)" }}>
         <thead>
-          <tr style={{ textAlign: "left", color: "#666" }}>
+          <tr style={{ textAlign: "left", color: "var(--text-dim)" }}>
             <th style={{ padding: "4px 8px 4px 0" }}>Category</th>
             <th style={{ padding: "4px 8px" }}>Sent (with outcome)</th>
             <th style={{ padding: "4px 8px" }}>Accepted</th>
@@ -21,11 +23,11 @@ export default function PerformancePanel({ data }) {
         </thead>
         <tbody>
           {data.map((row) => (
-            <tr key={row.category}>
+            <tr key={row.category} style={{ borderTop: "1px solid var(--border)" }}>
               <td style={{ padding: "4px 8px 4px 0" }}>{row.category}</td>
               <td style={{ padding: "4px 8px" }}>{row.total}</td>
               <td style={{ padding: "4px 8px" }}>{row.accepted}</td>
-              <td style={{ padding: "4px 8px" }}>{row.winRate}%</td>
+              <td style={{ padding: "4px 8px", color: "var(--accent)" }}>{row.winRate}%</td>
             </tr>
           ))}
         </tbody>

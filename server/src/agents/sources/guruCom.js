@@ -10,8 +10,10 @@
  * scheme they give you into this file, and register the adapter in
  * hunterAgent.js the same way freelancerComAdapter is registered.
  */
+import { getConfig } from "../../services/config.js";
+
 export async function guruComAdapter() {
-  if (!process.env.GURU_API_KEY) return [];
+  if (!getConfig("GURU_API_KEY")) return [];
   console.warn("[guruCom] GURU_API_KEY is set but this adapter is a stub — see comments in guruCom.js");
   return [];
 }

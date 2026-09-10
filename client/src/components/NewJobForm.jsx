@@ -20,14 +20,16 @@ export default function NewJobForm({ onCreated }) {
   }
 
   return (
-    <form onSubmit={submit} style={{ border: "1px solid #ddd", borderRadius: 8, padding: 16, marginBottom: 24 }}>
-      <h3 style={{ marginTop: 0 }}>Add a job (Upwork copy-paste or outreach lead)</h3>
+    <form onSubmit={submit} className="panel" style={{ marginBottom: 20 }}>
+      <div className="settings-group-title" style={{ marginTop: 0 }}>
+        Add a job (Upwork copy-paste or outreach lead)
+      </div>
       <input
         placeholder="Title"
         value={form.title}
         onChange={(e) => setForm({ ...form, title: e.target.value })}
         required
-        style={{ width: "100%", marginBottom: 8, padding: 6 }}
+        style={{ width: "100%", marginBottom: 8 }}
       />
       <textarea
         placeholder="Description / brief"
@@ -35,19 +37,19 @@ export default function NewJobForm({ onCreated }) {
         onChange={(e) => setForm({ ...form, description: e.target.value })}
         required
         rows={4}
-        style={{ width: "100%", marginBottom: 8, padding: 6 }}
+        style={{ width: "100%", marginBottom: 8 }}
       />
-      <div style={{ display: "flex", gap: 8, marginBottom: 8 }}>
+      <div style={{ display: "flex", gap: 8, marginBottom: 8, flexWrap: "wrap" }}>
         <input
           placeholder="Budget"
           value={form.budget}
           onChange={(e) => setForm({ ...form, budget: e.target.value })}
-          style={{ flex: 1, padding: 6 }}
+          style={{ flex: "1 1 120px" }}
         />
         <select
           value={form.category}
           onChange={(e) => setForm({ ...form, category: e.target.value })}
-          style={{ flex: 1, padding: 6 }}
+          style={{ flex: "1 1 120px" }}
         >
           <option value="content">content</option>
           <option value="data">data</option>
@@ -57,14 +59,14 @@ export default function NewJobForm({ onCreated }) {
         <select
           value={form.source}
           onChange={(e) => setForm({ ...form, source: e.target.value })}
-          style={{ flex: 1, padding: 6 }}
+          style={{ flex: "1 1 120px" }}
         >
           <option value="MANUAL">manual</option>
           <option value="UPWORK">upwork</option>
           <option value="OUTREACH">outreach</option>
         </select>
       </div>
-      <button type="submit" disabled={submitting}>
+      <button type="submit" className="btn" disabled={submitting}>
         {submitting ? "Adding..." : "Add job"}
       </button>
     </form>

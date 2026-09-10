@@ -5,15 +5,20 @@ import NewJobForm from "./components/NewJobForm.jsx";
 import StatsBar from "./components/StatsBar.jsx";
 import IncidentsPanel from "./components/IncidentsPanel.jsx";
 import PerformancePanel from "./components/PerformancePanel.jsx";
+import ActivityFeed from "./components/ActivityFeed.jsx";
+import AdminSettings from "./components/AdminSettings.jsx";
 
 const AUTO_REFRESH_MS = 30_000;
+const TABS = ["Command Centre", "Jobs", "Admin Settings"];
 
 export default function App() {
+  const [tab, setTab] = useState("Command Centre");
   const [jobs, setJobs] = useState([]);
   const [stats, setStats] = useState(null);
   const [incidents, setIncidents] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
+  const [now, setNow] = useState(new Date());
 
   async function refresh() {
     setLoading(true);
@@ -36,45 +41,87 @@ export default function App() {
 
   useEffect(() => {
     refresh();
-    // Everything here runs unattended 24x7 — the dashboard should reflect
-    // that without needing a manual refresh every time you check in.
     const interval = setInterval(refresh, AUTO_REFRESH_MS);
-    return () => clearInterval(interval);
+    const clock = setInterval(() => setNow(new Date()), 1000);
+    return () => {
+      clearInterval(interval);
+      clearInterval(clock);
+    };
   }, []);
 
+  const needsAttention = (stats?.pendingApprovalCount || 0) + (stats?.incidents?.escalated || 0);
+
   return (
-    <div style={{ maxWidth: 900, margin: "0 auto", padding: 24, fontFamily: "system-ui, sans-serif" }}>
-      <h1>AI Freelance OS</h1>
-      <p style={{ color: "#555" }}>
-        Hunter finds + feasibility-checks jobs → Proposal Agent drafts and (where the platform allows)
-        auto-sends pitches → Worker Agent produces the deliverable → Delivery Agent QA-checks it →
-        Payment Agent invoices and chases payment. The Inbox Agent reads client replies and detects
-        accept/reject automatically, and the Pipeline Agent then runs Worker → Delivery → Invoice
-        unattended. Failures retry themselves automatically — you're only needed where the
-        "Needs you" tiles below say so.
-      </p>
-
-      <StatsBar stats={stats} />
-      <IncidentsPanel incidents={incidents} onChanged={refresh} />
-      <PerformancePanel data={stats?.performanceByCategory} />
-
-      <div style={{ display: "flex", gap: 8, marginBottom: 24 }}>
-        <button onClick={() => api.runHunter().then(refresh)}>Run Hunter Agent now</button>
-        <button onClick={() => api.runInbox().then(refresh)}>Check inbox now</button>
-        <button onClick={() => api.runPipeline().then(refresh)}>Advance pipeline now</button>
-        <button onClick={refresh}>Refresh</button>
+    <div className="hud-shell">
+      <div className="hud-header">
+        <div>
+          <h1 className="hud-title">AI Freelance OS</h1>
+          <div className="hud-subtitle">
+            Hunter finds + feasibility-checks jobs → Proposal Agent drafts and (where the platform
+            allows) auto-sends → Worker → Delivery/QA → Payment Agent invoices. Inbox Agent reads
+            client replies and the Pipeline Agent runs the rest unattended. You're only needed
+            where a tile below says so.
+          </div>
+        </div>
+        <div className="hud-clock">
+          <div>
+            <span className="online-dot" />
+            SYSTEM ONLINE
+          </div>
+          <div>{now.toLocaleTimeString()}</div>
+          {needsAttention > 0 && (
+            <div style={{ color: "var(--accent-red)", marginTop: 4 }}>{needsAttention} item(s) need you</div>
+          )}
+        </div>
       </div>
 
-      <NewJobForm onCreated={refresh} />
+      <div className="tabs">
+        {TABS.map((t) => (
+          <button key={t} className={`tab-btn${tab === t ? " active" : ""}`} onClick={() => setTab(t)}>
+            {t}
+          </button>
+        ))}
+      </div>
 
-      {loading && <p>Loading...</p>}
-      {error && <p style={{ color: "crimson" }}>{error}</p>}
+      {error && <p style={{ color: "var(--accent-red)" }}>{error}</p>}
 
-      <h2>Jobs</h2>
-      {jobs.length === 0 && !loading && <p>No jobs yet. Add one above or run the Hunter Agent.</p>}
-      {jobs.map((job) => (
-        <JobCard key={job.id} job={job} onChanged={refresh} />
-      ))}
+      {tab === "Command Centre" && (
+        <>
+          <StatsBar stats={stats} />
+          <IncidentsPanel incidents={incidents} onChanged={refresh} />
+          <PerformancePanel data={stats?.performanceByCategory} />
+          <ActivityFeed />
+          <div style={{ display: "flex", gap: 8, marginBottom: 20 }}>
+            <button className="btn" onClick={() => api.runHunter().then(refresh)}>
+              Run Hunter Agent now
+            </button>
+            <button className="btn" onClick={() => api.runInbox().then(refresh)}>
+              Check inbox now
+            </button>
+            <button className="btn" onClick={() => api.runPipeline().then(refresh)}>
+              Advance pipeline now
+            </button>
+            <button className="btn" onClick={refresh}>
+              Refresh
+            </button>
+          </div>
+        </>
+      )}
+
+      {tab === "Jobs" && (
+        <>
+          <NewJobForm onCreated={refresh} />
+          {loading && <p style={{ color: "var(--text-dim)" }}>Loading...</p>}
+          {jobs.length === 0 && !loading && (
+            <p style={{ color: "var(--text-dim)" }}>No jobs yet. Add one above or run the Hunter Agent.</p>
+          )}
+          {jobs.map((job) => (
+            <JobCard key={job.id} job={job} onChanged={refresh} />
+          ))}
+        </>
+      )}
+
+      {tab === "Admin Settings" && <AdminSettings />}
     </div>
   );
 }

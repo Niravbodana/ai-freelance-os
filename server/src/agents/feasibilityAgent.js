@@ -1,5 +1,5 @@
 import { prisma } from "../db/client.js";
-import { askClaude } from "../services/claude.js";
+import { askClaude, MODELS } from "../services/claude.js";
 import { notifications } from "../services/notify.js";
 import { recordIncident, registerRetryHandler } from "../services/incidents.js";
 
@@ -39,7 +39,8 @@ export async function checkFeasibility(jobId) {
       SYSTEM_PROMPT,
       `Title: ${job.title}\nCategory: ${job.category}\nBudget: ${job.budget ?? "n/a"}\n\n${job.description}`,
       150,
-      { agent: "FEASIBILITY", jobId }
+      { agent: "FEASIBILITY", jobId },
+      { model: MODELS.CLASSIFY }
     );
     const [firstLine, ...rest] = verdict.trim().split("\n");
     const feasible = firstLine.trim().toUpperCase().startsWith("YES");

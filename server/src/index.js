@@ -8,8 +8,10 @@ import { jobsRouter } from "./routes/jobs.js";
 import { agentsRouter } from "./routes/agents.js";
 import { statsRouter } from "./routes/stats.js";
 import { incidentsRouter } from "./routes/incidents.js";
+import { adminRouter } from "./routes/admin.js";
 import { startScheduler } from "./scheduler.js";
 import { recordAndEscalateNow } from "./services/incidents.js";
+import { loadConfigCache } from "./services/config.js";
 
 // Crash-safety net: an error that would otherwise silently kill the process
 // (or the whole event loop) becomes an escalated Incident + an immediate
@@ -60,6 +62,7 @@ app.use("/api/jobs", jobsRouter);
 app.use("/api/agents", agentsRouter);
 app.use("/api/stats", statsRouter);
 app.use("/api/incidents", incidentsRouter);
+app.use("/api/admin", adminRouter);
 
 // Serve the built dashboard from the same origin/process as the API. This
 // is what makes the basic-auth login above "just work" via the browser's
@@ -84,6 +87,14 @@ app.use((err, _req, res, _next) => {
 });
 
 const port = process.env.PORT || 4000;
+
+// Load DB-stored credential overrides (Admin Settings) into memory before
+// anything tries to use them — agents/scheduler read via getConfig(), which
+// falls back to env vars until this cache is populated.
+await loadConfigCache().catch((err) => {
+  console.error("[startup] failed to load Admin Settings from DB (will use env vars only):", err.message);
+});
+
 app.listen(port, () => {
   console.log(`ai-freelance-os server listening on :${port}`);
   startScheduler();

@@ -1,11 +1,23 @@
 import Stripe from "stripe";
 import Razorpay from "razorpay";
+import { getConfig } from "./config.js";
 
-const stripe = process.env.STRIPE_SECRET_KEY ? new Stripe(process.env.STRIPE_SECRET_KEY) : null;
-const razorpay =
-  process.env.RAZORPAY_KEY_ID && process.env.RAZORPAY_KEY_SECRET
-    ? new Razorpay({ key_id: process.env.RAZORPAY_KEY_ID, key_secret: process.env.RAZORPAY_KEY_SECRET })
-    : null;
+/**
+ * Clients are built fresh from current config on each call rather than
+ * cached at module load — keys can be added/changed at runtime via Admin
+ * Settings, and constructing these SDK clients is cheap (no network call
+ * until a method is actually invoked).
+ */
+function getStripe() {
+  const key = getConfig("STRIPE_SECRET_KEY");
+  return key ? new Stripe(key) : null;
+}
+
+function getRazorpay() {
+  const keyId = getConfig("RAZORPAY_KEY_ID");
+  const keySecret = getConfig("RAZORPAY_KEY_SECRET");
+  return keyId && keySecret ? new Razorpay({ key_id: keyId, key_secret: keySecret }) : null;
+}
 
 /**
  * Provider choice: Razorpay for INR/India-based clients (UPI support),
@@ -14,15 +26,17 @@ const razorpay =
  * status just get tracked for reminders, no real charge link.
  */
 export function pickProvider(currency) {
-  if (currency === "INR" && razorpay) return "RAZORPAY";
-  if (stripe) return "STRIPE";
+  if (currency === "INR" && getRazorpay()) return "RAZORPAY";
+  if (getStripe()) return "STRIPE";
   return "MANUAL";
 }
 
 export async function createInvoiceLink({ provider, amount, currency, description, clientEmail }) {
-  if (provider === "STRIPE" && stripe) {
+  if (provider === "STRIPE") {
+    const stripe = getStripe();
+    if (!stripe) return null;
     const invoiceItem = await stripe.invoiceItems.create({
-      customer: await ensureStripeCustomer(clientEmail),
+      customer: await ensureStripeCustomer(stripe, clientEmail),
       amount: Math.round(amount * 100),
       currency: currency.toLowerCase(),
       description,
@@ -32,7 +46,9 @@ export async function createInvoiceLink({ provider, amount, currency, descriptio
     return invoice.hosted_invoice_url;
   }
 
-  if (provider === "RAZORPAY" && razorpay) {
+  if (provider === "RAZORPAY") {
+    const razorpay = getRazorpay();
+    if (!razorpay) return null;
     const link = await razorpay.paymentLink.create({
       amount: Math.round(amount * 100),
       currency,
@@ -46,7 +62,7 @@ export async function createInvoiceLink({ provider, amount, currency, descriptio
   return null; // MANUAL provider: no auto invoice link, tracked for manual follow-up
 }
 
-async function ensureStripeCustomer(email) {
+async function ensureStripeCustomer(stripe, email) {
   if (!email) return (await stripe.customers.create({})).id;
   const existing = await stripe.customers.list({ email, limit: 1 });
   if (existing.data.length) return existing.data[0].id;

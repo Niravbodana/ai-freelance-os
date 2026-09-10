@@ -4,6 +4,7 @@ import { notifications, sendProposalEmail } from "../services/notify.js";
 import { placeFreelancerBid } from "./sources/freelancerCom.js";
 import { recordIncident, registerRetryHandler } from "../services/incidents.js";
 import { getPerformanceSummary } from "../services/performance.js";
+import { getConfig } from "../services/config.js";
 
 const SYSTEM_PROMPT = `You are a freelance proposal writer and rate negotiator. Given a job post,
 write a short, specific, non-generic proposal (120-180 words) that:
@@ -32,7 +33,7 @@ const ALWAYS_AUTO_SEND_SOURCES = new Set(["OUTREACH", "MANUAL"]);
 function canAutoSend(job) {
   if (ALWAYS_AUTO_SEND_SOURCES.has(job.source)) return true;
   if (job.source === "REMOTE_BOARD" && job.applyEmail) return true;
-  if (job.source === "FREELANCER" && process.env.FREELANCER_OAUTH_TOKEN) return true;
+  if (job.source === "FREELANCER" && getConfig("FREELANCER_OAUTH_TOKEN")) return true;
   return false;
 }
 

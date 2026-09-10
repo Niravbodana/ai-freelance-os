@@ -4,11 +4,12 @@
  * No login-walled scraping, no bypassing rate limits, no touching pages
  * that ask not to be automated.
  */
+import { getConfig } from "../../services/config.js";
 
 // RemoteOK publishes a public JSON feed at /api — first element is metadata, skip it.
 export async function remoteOkAdapter() {
   const res = await fetch("https://remoteok.com/api", {
-    headers: { "User-Agent": "ai-freelance-os (contact: " + (process.env.OWNER_EMAIL || "n/a") + ")" },
+    headers: { "User-Agent": "ai-freelance-os (contact: " + (getConfig("OWNER_EMAIL") || "n/a") + ")" },
   });
   if (!res.ok) return [];
   const data = await res.json();
@@ -36,7 +37,7 @@ export async function weWorkRemotelyAdapter() {
   const results = [];
   for (const feedUrl of WWR_FEEDS) {
     const res = await fetch(feedUrl, {
-      headers: { "User-Agent": "ai-freelance-os (contact: " + (process.env.OWNER_EMAIL || "n/a") + ")" },
+      headers: { "User-Agent": "ai-freelance-os (contact: " + (getConfig("OWNER_EMAIL") || "n/a") + ")" },
     });
     if (!res.ok) continue;
     const xml = await res.text();

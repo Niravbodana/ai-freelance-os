@@ -1,29 +1,69 @@
 import { fetchWithTimeout } from "./httpFetch.js";
 import { prisma } from "../db/client.js";
+import { getConfig } from "./config.js";
 
 const API_URL = "https://api.anthropic.com/v1/messages";
 const ANTHROPIC_VERSION = "2023-06-01";
-const MODEL = "claude-sonnet-5";
 
-// Anthropic doesn't expose an overall account-quota endpoint, so "budget
-// remaining" is self-tracked: every call's actual token usage is logged
-// (see UsageLog below) against a monthly budget you set. Cost-per-token
-// defaults below are placeholders — check console.anthropic.com for your
-// plan's real pricing and override via env if they're off.
-const INPUT_COST_PER_MTOK = Number(process.env.CLAUDE_INPUT_COST_PER_MTOK || 3);
-const OUTPUT_COST_PER_MTOK = Number(process.env.CLAUDE_OUTPUT_COST_PER_MTOK || 15);
+export const MODELS = {
+  // Simple, well-scoped classification (yes/no, pass/fail, intent) —
+  // Haiku 4.5 is roughly half Sonnet 5's per-token price and easily
+  // capable of these tasks. Real cost lever, unlike prompt caching here:
+  // our system prompts (~100-200 tokens) sit well below every model's
+  // minimum cacheable prefix (1024 tokens on Sonnet 5, 4096 on Haiku 4.5
+  // — see shared/prompt-caching.md), so cache_control on them would
+  // never actually cache. Model tiering is what actually saves money.
+  CLASSIFY: "claude-haiku-4-5-20251001",
+  // Proposal/content drafting — quality-sensitive, stays on Sonnet 5.
+  GENERATE: "claude-sonnet-5",
+};
 
-// The API *does* return real per-key rate-limit headers on every response —
-// this snapshot is genuine live data, not estimated, and is what the
-// dashboard's "API rate limit" tile shows.
+// Pricing varies by model — cost is computed per-call using the rate for
+// the model actually used, not one global constant.
+const PRICING_PER_MTOK = {
+  "claude-sonnet-5": { input: 2, output: 10 },
+  "claude-haiku-4-5-20251001": { input: 1, output: 5 },
+};
+
+function priceFor(model) {
+  return (
+    PRICING_PER_MTOK[model] || {
+      input: Number(getConfig("CLAUDE_INPUT_COST_PER_MTOK")) || 3,
+      output: Number(getConfig("CLAUDE_OUTPUT_COST_PER_MTOK")) || 15,
+    }
+  );
+}
+
+// Thinking is adaptive-on by default on Sonnet 5 (and Opus/Fable-tier
+// models) — real token spend for tasks that don't need step-by-step
+// reasoning. Every call this app makes is a single-turn classification or
+// a direct pattern-following write, so thinking is explicitly turned off
+// rather than left to its (costlier) default. Haiku 4.5 has no thinking
+// unless explicitly enabled, so this only matters for the GENERATE tier.
+const ADAPTIVE_THINKING_MODELS = new Set(["claude-sonnet-5"]);
+
+// The API itself has no "remaining account quota" endpoint — this
+// snapshot of the real anthropic-ratelimit-* response headers is the
+// closest thing to live capacity data, and is what the dashboard shows.
 let lastRateLimitSnapshot = null;
 export function getRateLimitSnapshot() {
   return lastRateLimitSnapshot;
 }
 
-export async function askClaude(systemPrompt, userPrompt, maxTokens = 1024, meta = {}) {
-  const apiKey = process.env.ANTHROPIC_API_KEY;
-  if (!apiKey) throw new Error("ANTHROPIC_API_KEY is not set");
+export async function askClaude(systemPrompt, userPrompt, maxTokens = 1024, meta = {}, options = {}) {
+  const apiKey = getConfig("ANTHROPIC_API_KEY");
+  if (!apiKey) throw new Error("ANTHROPIC_API_KEY is not set — configure it in Admin Settings");
+
+  const model = options.model || MODELS.GENERATE;
+  const body = {
+    model,
+    max_tokens: maxTokens,
+    system: systemPrompt,
+    messages: [{ role: "user", content: userPrompt }],
+  };
+  if (ADAPTIVE_THINKING_MODELS.has(model) && options.disableThinking !== false) {
+    body.thinking = { type: "disabled" };
+  }
 
   const res = await fetchWithTimeout(
     API_URL,
@@ -34,12 +74,7 @@ export async function askClaude(systemPrompt, userPrompt, maxTokens = 1024, meta
         "anthropic-version": ANTHROPIC_VERSION,
         "content-type": "application/json",
       },
-      body: JSON.stringify({
-        model: MODEL,
-        max_tokens: maxTokens,
-        system: systemPrompt,
-        messages: [{ role: "user", content: userPrompt }],
-      }),
+      body: JSON.stringify(body),
     },
     60_000
   );
@@ -63,8 +98,8 @@ export async function askClaude(systemPrompt, userPrompt, maxTokens = 1024, meta
 
   const inputTokens = data.usage?.input_tokens ?? 0;
   const outputTokens = data.usage?.output_tokens ?? 0;
-  const costUsd =
-    (inputTokens / 1_000_000) * INPUT_COST_PER_MTOK + (outputTokens / 1_000_000) * OUTPUT_COST_PER_MTOK;
+  const price = priceFor(model);
+  const costUsd = (inputTokens / 1_000_000) * price.input + (outputTokens / 1_000_000) * price.output;
 
   try {
     await prisma.usageLog.create({

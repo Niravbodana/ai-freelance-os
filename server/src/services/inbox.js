@@ -1,11 +1,10 @@
 import { ImapFlow } from "imapflow";
 import { simpleParser } from "mailparser";
 import { prisma } from "../db/client.js";
-
-const MAILBOX = process.env.IMAP_MAILBOX || "INBOX";
+import { getConfig } from "./config.js";
 
 function isConfigured() {
-  return Boolean(process.env.IMAP_HOST && process.env.IMAP_USER && process.env.IMAP_PASS);
+  return Boolean(getConfig("IMAP_HOST") && getConfig("IMAP_USER") && getConfig("IMAP_PASS"));
 }
 
 /**
@@ -18,11 +17,13 @@ function isConfigured() {
 export async function fetchNewEmails() {
   if (!isConfigured()) return [];
 
+  const mailbox = getConfig("IMAP_MAILBOX") || "INBOX";
+
   const client = new ImapFlow({
-    host: process.env.IMAP_HOST,
-    port: Number(process.env.IMAP_PORT || 993),
-    secure: process.env.IMAP_SECURE !== "false",
-    auth: { user: process.env.IMAP_USER, pass: process.env.IMAP_PASS },
+    host: getConfig("IMAP_HOST"),
+    port: Number(getConfig("IMAP_PORT") || 993),
+    secure: getConfig("IMAP_SECURE") !== "false",
+    auth: { user: getConfig("IMAP_USER"), pass: getConfig("IMAP_PASS") },
     logger: false,
   });
 
@@ -30,11 +31,11 @@ export async function fetchNewEmails() {
 
   await client.connect();
   try {
-    const lock = await client.getMailboxLock(MAILBOX);
+    const lock = await client.getMailboxLock(mailbox);
     try {
       const state = await prisma.inboxState.upsert({
-        where: { mailbox: MAILBOX },
-        create: { mailbox: MAILBOX, lastUid: 0 },
+        where: { mailbox },
+        create: { mailbox, lastUid: 0 },
         update: {},
       });
 
@@ -60,7 +61,7 @@ export async function fetchNewEmails() {
       }
 
       if (maxUidSeen > state.lastUid) {
-        await prisma.inboxState.update({ where: { mailbox: MAILBOX }, data: { lastUid: maxUidSeen } });
+        await prisma.inboxState.update({ where: { mailbox }, data: { lastUid: maxUidSeen } });
       }
     } finally {
       lock.release();
