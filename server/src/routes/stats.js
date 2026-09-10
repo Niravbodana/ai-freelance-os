@@ -21,6 +21,7 @@ statsRouter.get(
     const startOfMonth = new Date();
     startOfMonth.setDate(1);
     startOfMonth.setHours(0, 0, 0, 0);
+    const last30Days = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
 
     const [
       statusCounts,
@@ -31,6 +32,7 @@ statsRouter.get(
       usageThisMonth,
       escalatedIncidents,
       openIncidents,
+      last30DaysPaid,
     ] = await Promise.all([
       prisma.job.groupBy({ by: ["status"], _count: { status: true } }),
       prisma.client.count({ where: { isRecurring: true } }),
@@ -43,6 +45,11 @@ statsRouter.get(
       }),
       prisma.incident.count({ where: { status: "ESCALATED" } }),
       prisma.incident.count({ where: { status: "OPEN" } }),
+      prisma.payment.aggregate({
+        where: { status: "PAID", paidAt: { gte: last30Days } },
+        _sum: { amount: true },
+        _count: true,
+      }),
     ]);
 
     const performanceByCategory = await getPerformanceByCategory();
@@ -77,6 +84,16 @@ statsRouter.get(
         autoRetrying: openIncidents,
       },
       performanceByCategory,
+      // A real, data-driven monthly estimate — trailing 30-day actual paid
+      // revenue, not a guess. Confidence is explicit rather than implied by
+      // a number: too little data to mean anything (<3 paid jobs), an early
+      // trend, or established enough to plan around.
+      forecast: {
+        last30DaysRevenue: last30DaysPaid._sum.amount || 0,
+        paidJobsLast30Days: last30DaysPaid._count || 0,
+        confidence:
+          (last30DaysPaid._count || 0) < 3 ? "insufficient-data" : (last30DaysPaid._count || 0) < 10 ? "early" : "established",
+      },
     });
   })
 );

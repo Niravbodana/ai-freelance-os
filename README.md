@@ -96,10 +96,12 @@ applications, not literally anywhere.
 8. **Pipeline Agent** (`pipelineAgent.js`) — the self-driving state
    machine: every 10 min it finds `ACCEPTED` jobs with no deliverable and
    runs the Worker Agent, `IN_PROGRESS` jobs with an un-QA'd deliverable
-   and runs the Delivery Agent, and `DELIVERED` jobs with no payment and
-   invoices them. This is what makes "client says yes" the last moment a
-   human needs to be involved — everything after it runs unattended on its
-   own schedule, independent of whatever triggered the `ACCEPTED` status.
+   *and no pending revision* and runs the Delivery Agent, `DELIVERED` jobs
+   with no payment and invoices them, and `ACCEPTED` outreach/manual jobs
+   with no contract yet and sends one (Contract Agent, below). This is
+   what makes "client says yes" the last moment a human needs to be
+   involved — everything after it runs unattended on its own schedule,
+   independent of whatever triggered the `ACCEPTED` status.
 9. **Testimonial Agent** (`testimonialAgent.js`) — fires automatically
    from `markPaid()`: emails the client a short, warm request for a
    testimonial/review once, guarded by `Payment.testimonialRequestedAt`.
@@ -113,6 +115,14 @@ applications, not literally anywhere.
     optional note per line) and turns each into a feasibility check + a
     personalized, auto-sent proposal. Same OUTREACH auto-send rules as
     everywhere else — no marketplace ToS applies to outreach you control.
+11. **Contract Agent** (`contractAgent.js`) — sources with no
+    platform-level terms of service behind them (`OUTREACH`/`MANUAL`; a
+    marketplace's own ToS already covers Upwork/Freelancer/Guru
+    engagements) get a plain-language service agreement emailed
+    automatically on acceptance (scope, rate, payment terms, revision
+    policy, IP transfer on payment) — a paper trail, not a lawyer
+    replacement, but real protection if a payment dispute ever comes up.
+    Fires once per job (`Job.contractSentAt`).
 
 **Auto-negotiation**: when the Inbox Agent detects a `COUNTER_OFFER`, it
 compares the countered rate to the original ask — within 20%
@@ -120,6 +130,26 @@ compares the countered rate to the original ask — within 20%
 with the client by email, and updates the proposal's rate, so a deal that's
 clearly fine doesn't sit waiting on a human. Outside that band it still
 notifies the owner for a real decision, same as before.
+
+**The revision loop**: a failed QA pass, or a client emailing back after
+delivery asking for a change, both set `Deliverable.needsRevision` with the
+specific feedback attached (`qaFeedback`/`revisionNotes`). Worker Agent
+reads that feedback on its next run instead of blindly regenerating from
+scratch, and Pipeline Agent only re-runs Delivery Agent's QA check once a
+revision has actually happened — earlier versions of this loop re-checked
+the same unrevised content forever instead of giving Worker Agent a turn to
+fix it; this was caught and fixed via live testing, not designed in from
+the start. The Inbox Agent also now watches replies on `DELIVERED`/
+`AWAITING_PAYMENT` jobs (not just pre-acceptance ones), classifying them as
+`SATISFIED` (no action) or `REVISION_REQUEST` (feeds the loop above).
+
+**Deposit recommendation**: a first-time (non-recurring) `OUTREACH`/
+`MANUAL` client has no track record and no platform escrow behind them —
+Pipeline Agent flags this once as an advisory `PIPELINE_DEPOSIT_RECOMMENDED`
+incident rather than silently doing full unpaid work for a stranger. It's
+advisory, not an automated payment gate: the owner sees it and can invoice
+a deposit or run Worker Agent manually from the Jobs tab, both already
+one click away.
 
 Clients who pay across 2+ completed jobs are automatically flagged
 `isRecurring` on their client record, for prioritizing repeat relationships.
@@ -143,6 +173,10 @@ the top of Command Centre) gives a one-glance view of the whole operation:
 
 - Jobs needing your approval, jobs in flight/delivered/paid, recurring
   clients, revenue collected vs. outstanding, overdue payments.
+- **Monthly revenue estimate** — trailing 30-day actual paid revenue, with
+  an explicit confidence label (`insufficient-data` under 3 paid jobs,
+  `early` under 10, `established` beyond that) rather than a number
+  presented as more certain than the data behind it actually is.
 - **Claude usage**: tokens used and estimated cost this month, budget
   remaining (if you set `CLAUDE_MONTHLY_BUDGET_USD`), and the live
   `anthropic-ratelimit-*` headers from the most recent API call — that
@@ -316,6 +350,10 @@ they're unset; that's a real gap, not a convenience default.
       not just email — currently only email-threaded sources auto-detect replies
 - [ ] Capture testimonial replies automatically (currently the request goes
       out; the reply is read by the owner directly, not parsed/stored)
+- [ ] A real deposit-before-work payment gate (currently an advisory
+      incident, not automated) — needs Payment to support more than one
+      row per job (deposit + final), a bigger schema/state-machine change
+      deliberately deferred rather than rushed
 - [ ] Gradually relax the marketplace approval gate per category once
       accuracy is proven — never by removing the gate itself, only by
       shrinking what needs it

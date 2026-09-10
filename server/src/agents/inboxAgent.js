@@ -18,26 +18,45 @@ function extractRate(str) {
   return match ? parseFloat(match[0]) : null;
 }
 
-const CLASSIFY_PROMPT = `You are triaging a reply to a freelance job application email.
+const PRE_DELIVERY_PROMPT = `You are triaging a reply to a freelance job application email.
 Reply with exactly two lines:
 Line 1: one of ACCEPTED, REJECTED, COUNTER_OFFER, QUESTION, OTHER
 Line 2: if COUNTER_OFFER, the countered rate (else "n/a"); if QUESTION, a concise one-paragraph
 draft reply answering it professionally based on the original job context given (else "n/a")`;
 
+const POST_DELIVERY_PROMPT = `You are triaging a client's reply after we delivered completed
+freelance work (and possibly sent an invoice). Reply with exactly two lines:
+Line 1: one of SATISFIED, REVISION_REQUEST, QUESTION, OTHER
+Line 2: if REVISION_REQUEST, a concise summary of exactly what they want changed (else "n/a");
+if QUESTION, a concise one-paragraph draft reply (else "n/a")`;
+
+const PRE_DELIVERY_STATUSES = ["PROPOSAL_SENT"];
+const POST_DELIVERY_STATUSES = ["DELIVERED", "AWAITING_PAYMENT"];
+
 /**
  * Inbox Agent — the piece that closes the loop without a human needing to
  * check email. Matches each new reply to the job whose proposal we emailed
- * (by sender address), classifies intent, and acts:
+ * (by sender address), classifies intent based on what stage the job is
+ * at, and acts:
+ *
+ * Before delivery (PROPOSAL_SENT):
  *   ACCEPTED       → job moves to ACCEPTED (the pipeline sweep then runs
- *                     Worker → Delivery → Invoice automatically)
+ *                     Contract → Worker → Delivery → Invoice automatically)
  *   REJECTED       → job closed, outcome recorded for performance tracking
- *   COUNTER_OFFER  → owner notified with the number; needs a real decision
- *   QUESTION/OTHER → owner notified with the message + an AI-drafted reply
- *                     to send themselves (answering exactly what was asked
- *                     is judgment-heavy enough to keep a human in the loop)
+ *   COUNTER_OFFER  → auto-negotiated within a band (see
+ *                     ACCEPTABLE_COUNTER_BAND), otherwise owner decides
+ *   QUESTION/OTHER → owner notified with an AI-drafted reply to review
+ *
+ * After delivery (DELIVERED/AWAITING_PAYMENT):
+ *   SATISFIED       → informational only, no action needed
+ *   REVISION_REQUEST → job goes back to IN_PROGRESS with the feedback
+ *                      attached; the Pipeline Agent re-runs Worker Agent
+ *                      with that feedback, then re-QAs automatically
+ *   QUESTION/OTHER  → owner notified with an AI-drafted reply to review
+ *
  * This only works for jobs we emailed a proposal to (REMOTE_BOARD apply-by
  * -email, or any source where applyEmail is set) — Upwork/marketplace
- * replies still need the manual mark-accepted/mark-rejected buttons.
+ * replies still need the manual dashboard buttons.
  */
 export async function processInbox() {
   const run = await prisma.agentRun.create({ data: { agent: "INBOX", status: "RUNNING" } });
@@ -49,76 +68,19 @@ export async function processInbox() {
     for (const email of emails) {
       try {
         const job = await prisma.job.findFirst({
-          where: { applyEmail: { equals: email.from, mode: "insensitive" }, status: "PROPOSAL_SENT" },
-          include: { proposal: true },
+          where: {
+            applyEmail: { equals: email.from, mode: "insensitive" },
+            status: { in: [...PRE_DELIVERY_STATUSES, ...POST_DELIVERY_STATUSES] },
+          },
+          include: { proposal: true, deliverable: true },
           orderBy: { createdAt: "desc" },
         });
         if (!job) continue; // Not a reply to anything we sent — ignore.
 
-        const verdict = await askClaude(
-          CLASSIFY_PROMPT,
-          `Original job: ${job.title}\n${job.description.slice(0, 1000)}\n\nOur proposed rate: ${job.proposal?.proposedRate ?? "n/a"}\n\nClient's reply:\nSubject: ${email.subject}\n${email.text}`,
-          400,
-          { agent: "INBOX", jobId: job.id },
-          { model: MODELS.CLASSIFY }
-        );
-        const [intentLine, detailLine] = verdict.trim().split("\n");
-        const intent = (intentLine || "").trim().toUpperCase();
-        const detail = (detailLine || "").trim();
-
-        if (intent === "ACCEPTED") {
-          await recordProposalOutcome(job.id, "ACCEPTED");
-          await notifyOwner(`Job accepted: ${job.title}`, `Client accepted. Worker/Delivery/Invoice will run automatically.`);
-        } else if (intent === "REJECTED") {
-          await recordProposalOutcome(job.id, "REJECTED");
-          // Informational only — no action needed, this is exactly what
-          // "self-healing" should look like for a normal business outcome.
-        } else if (intent === "COUNTER_OFFER") {
-          const ourRate = extractRate(job.proposal?.proposedRate);
-          const counteredRate = extractRate(detail);
-          const withinBand =
-            ourRate != null && counteredRate != null && counteredRate >= ourRate * (1 - ACCEPTABLE_COUNTER_BAND);
-
-          if (withinBand) {
-            // Close the deal now rather than waiting on a human for a
-            // counter that's clearly acceptable — speed of close is worth
-            // more here than squeezing the last bit of rate.
-            await prisma.proposal.update({
-              where: { jobId: job.id },
-              data: {
-                proposedRate: detail,
-                outcome: "ACCEPTED",
-                outcomeAt: new Date(),
-                negotiationLog: `Auto-accepted client counter of "${detail}" — within ${ACCEPTABLE_COUNTER_BAND * 100}% of our original ask (${job.proposal?.proposedRate}).`,
-              },
-            });
-            await prisma.job.update({ where: { id: job.id }, data: { status: "ACCEPTED" } });
-            if (job.applyEmail) {
-              await sendProposalEmail({
-                to: job.applyEmail,
-                subject: `Re: ${job.title}`,
-                text: `Thanks for the reply — ${detail} works for me. Happy to get started right away.`,
-              });
-            }
-            await notifyOwner(
-              `Auto-accepted counter-offer: ${job.title}`,
-              `Client countered at "${detail}" (our ask was ${job.proposal?.proposedRate}) — within the acceptable band, so it was auto-accepted and confirmed with the client. Worker/Delivery/Invoice will run automatically.`
-            );
-          } else {
-            await prisma.proposal.update({
-              where: { jobId: job.id },
-              data: { outcome: "COUNTER_OFFER", outcomeAt: new Date(), negotiationLog: `Client countered: ${detail}` },
-            });
-            await notifyOwner(
-              `Counter-offer: ${job.title}`,
-              `Client countered at "${detail}" (our proposed rate was ${job.proposal?.proposedRate ?? "n/a"}) — outside the auto-accept band. Needs your decision — open the dashboard to accept, counter again, or decline.`
-            );
-          }
+        if (POST_DELIVERY_STATUSES.includes(job.status)) {
+          await handlePostDeliveryReply(job, email);
         } else {
-          await notifyOwner(
-            `Client question: ${job.title}`,
-            `Client wrote:\n${email.text}\n\n${intent === "QUESTION" ? `Suggested reply (not sent — review first):\n${detail}` : "Could not confidently classify this reply — please review it directly."}`
-          );
+          await handlePreDeliveryReply(job, email);
         }
 
         processed += 1;
@@ -141,4 +103,105 @@ export async function processInbox() {
   }
 
   return { processed };
+}
+
+async function handlePreDeliveryReply(job, email) {
+  const verdict = await askClaude(
+    PRE_DELIVERY_PROMPT,
+    `Original job: ${job.title}\n${job.description.slice(0, 1000)}\n\nOur proposed rate: ${job.proposal?.proposedRate ?? "n/a"}\n\nClient's reply:\nSubject: ${email.subject}\n${email.text}`,
+    400,
+    { agent: "INBOX", jobId: job.id },
+    { model: MODELS.CLASSIFY }
+  );
+  const [intentLine, detailLine] = verdict.trim().split("\n");
+  const intent = (intentLine || "").trim().toUpperCase();
+  const detail = (detailLine || "").trim();
+
+  if (intent === "ACCEPTED") {
+    await recordProposalOutcome(job.id, "ACCEPTED");
+    await notifyOwner(`Job accepted: ${job.title}`, `Client accepted. Contract/Worker/Delivery/Invoice will run automatically.`);
+  } else if (intent === "REJECTED") {
+    await recordProposalOutcome(job.id, "REJECTED");
+    // Informational only — no action needed, this is exactly what
+    // "self-healing" should look like for a normal business outcome.
+  } else if (intent === "COUNTER_OFFER") {
+    const ourRate = extractRate(job.proposal?.proposedRate);
+    const counteredRate = extractRate(detail);
+    const withinBand =
+      ourRate != null && counteredRate != null && counteredRate >= ourRate * (1 - ACCEPTABLE_COUNTER_BAND);
+
+    if (withinBand) {
+      // Close the deal now rather than waiting on a human for a counter
+      // that's clearly acceptable — speed of close is worth more here
+      // than squeezing the last bit of rate.
+      await prisma.proposal.update({
+        where: { jobId: job.id },
+        data: {
+          proposedRate: detail,
+          outcome: "ACCEPTED",
+          outcomeAt: new Date(),
+          negotiationLog: `Auto-accepted client counter of "${detail}" — within ${ACCEPTABLE_COUNTER_BAND * 100}% of our original ask (${job.proposal?.proposedRate}).`,
+        },
+      });
+      await prisma.job.update({ where: { id: job.id }, data: { status: "ACCEPTED" } });
+      if (job.applyEmail) {
+        await sendProposalEmail({
+          to: job.applyEmail,
+          subject: `Re: ${job.title}`,
+          text: `Thanks for the reply — ${detail} works for me. Happy to get started right away.`,
+        });
+      }
+      await notifyOwner(
+        `Auto-accepted counter-offer: ${job.title}`,
+        `Client countered at "${detail}" (our ask was ${job.proposal?.proposedRate}) — within the acceptable band, so it was auto-accepted and confirmed with the client. Contract/Worker/Delivery/Invoice will run automatically.`
+      );
+    } else {
+      await prisma.proposal.update({
+        where: { jobId: job.id },
+        data: { outcome: "COUNTER_OFFER", outcomeAt: new Date(), negotiationLog: `Client countered: ${detail}` },
+      });
+      await notifyOwner(
+        `Counter-offer: ${job.title}`,
+        `Client countered at "${detail}" (our proposed rate was ${job.proposal?.proposedRate ?? "n/a"}) — outside the auto-accept band. Needs your decision — open the dashboard to accept, counter again, or decline.`
+      );
+    }
+  } else {
+    await notifyOwner(
+      `Client question: ${job.title}`,
+      `Client wrote:\n${email.text}\n\n${intent === "QUESTION" ? `Suggested reply (not sent — review first):\n${detail}` : "Could not confidently classify this reply — please review it directly."}`
+    );
+  }
+}
+
+async function handlePostDeliveryReply(job, email) {
+  const verdict = await askClaude(
+    POST_DELIVERY_PROMPT,
+    `Project: ${job.title}\n${job.description.slice(0, 1000)}\n\nClient's reply:\nSubject: ${email.subject}\n${email.text}`,
+    400,
+    { agent: "INBOX", jobId: job.id },
+    { model: MODELS.CLASSIFY }
+  );
+  const [intentLine, detailLine] = verdict.trim().split("\n");
+  const intent = (intentLine || "").trim().toUpperCase();
+  const detail = (detailLine || "").trim();
+
+  if (intent === "REVISION_REQUEST") {
+    if (!job.deliverable) return; // nothing to revise against — fall through silently
+    await prisma.deliverable.update({
+      where: { jobId: job.id },
+      data: { needsRevision: true, qaPassed: false, revisionNotes: detail },
+    });
+    await prisma.job.update({ where: { id: job.id }, data: { status: "IN_PROGRESS" } });
+    await notifyOwner(
+      `Revision requested: ${job.title}`,
+      `Client asked for: "${detail}". Worker Agent will revise and re-QA automatically on the next pipeline sweep.`
+    );
+  } else if (intent === "SATISFIED") {
+    // Informational only — nothing to do, this is the good outcome.
+  } else {
+    await notifyOwner(
+      `Client reply after delivery: ${job.title}`,
+      `Client wrote:\n${email.text}\n\n${intent === "QUESTION" ? `Suggested reply (not sent — review first):\n${detail}` : "Could not confidently classify this reply — please review it directly."}`
+    );
+  }
 }

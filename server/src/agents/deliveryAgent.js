@@ -38,7 +38,15 @@ export async function runDeliveryAgent(jobId) {
 
     await prisma.deliverable.update({
       where: { jobId },
-      data: { qaPassed, deliveredAt: qaPassed ? new Date() : null },
+      data: {
+        qaPassed,
+        deliveredAt: qaPassed ? new Date() : null,
+        // A fail needs Worker Agent to actually revise before QA re-checks
+        // — see needsRevision's doc comment in schema.prisma for why this
+        // gate exists (it used to loop QA on unchanged content forever).
+        needsRevision: !qaPassed,
+        qaFeedback: qaPassed ? null : verdict,
+      },
     });
 
     await prisma.job.update({

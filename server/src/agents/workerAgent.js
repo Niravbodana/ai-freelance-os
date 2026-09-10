@@ -31,7 +31,7 @@ export const SUPPORTED_CATEGORIES = Object.keys(SYSTEM_PROMPTS);
  * manual fulfillment instead of being attempted.
  */
 export async function runWorkerAgent(jobId) {
-  const job = await prisma.job.findUniqueOrThrow({ where: { id: jobId } });
+  const job = await prisma.job.findUniqueOrThrow({ where: { id: jobId }, include: { deliverable: true } });
 
   const systemPrompt = SYSTEM_PROMPTS[job.category];
   if (!systemPrompt) {
@@ -45,15 +45,28 @@ export async function runWorkerAgent(jobId) {
   });
 
   try {
-    const content = await askClaude(systemPrompt, `Client brief:\n${job.description}`, 2048, {
-      agent: "WORKER",
-      jobId,
-    });
+    // A revision (either a failed QA pass or a client's post-delivery
+    // request — see needsRevision in schema.prisma) means this isn't a
+    // cold generation: feed the specific feedback back in so the rewrite
+    // actually addresses it instead of independently regenerating and
+    // possibly repeating the same mistake.
+    const revisionContext = job.deliverable?.needsRevision
+      ? `\n\nThis is a REVISION of a previous attempt. Address this feedback specifically:\n${
+          job.deliverable.revisionNotes || job.deliverable.qaFeedback || "(no specific feedback given)"
+        }\n\nPrevious attempt:\n${job.deliverable.content}`
+      : "";
+
+    const content = await askClaude(
+      systemPrompt,
+      `Client brief:\n${job.description}${revisionContext}`,
+      2048,
+      { agent: "WORKER", jobId }
+    );
 
     const deliverable = await prisma.deliverable.upsert({
       where: { jobId },
       create: { jobId, content },
-      update: { content },
+      update: { content, needsRevision: false },
     });
 
     await prisma.job.update({ where: { id: jobId }, data: { status: "IN_PROGRESS" } });

@@ -21,6 +21,8 @@ export default function StatsBar({ stats }) {
         <Tile label="Revenue outstanding" value={`$${stats.revenue?.outstanding?.toFixed(0) ?? 0}`} />
       </div>
 
+      <ForecastTile forecast={stats.forecast} />
+
       <div className="tile-grid">
         <Tile
           label="Claude usage this month"
@@ -41,6 +43,34 @@ export default function StatsBar({ stats }) {
           />
         )}
         <Tile label="Auto-retrying" value={incidents.autoRetrying} />
+      </div>
+    </div>
+  );
+}
+
+const CONFIDENCE_LABEL = {
+  "insufficient-data": "Not enough paid jobs yet for a real estimate",
+  early: "Early trend — treat as rough",
+  established: "Based on a steady trailing 30 days",
+};
+
+function ForecastTile({ forecast }) {
+  if (!forecast) return null;
+  return (
+    <div className="panel" style={{ marginBottom: 8, display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 8 }}>
+      <div>
+        <div style={{ fontSize: 10, color: "var(--text-dim)", textTransform: "uppercase", letterSpacing: "0.05em" }}>
+          Monthly Revenue Estimate (trailing 30 days, real data)
+        </div>
+        <div className="tile-value" style={{ fontSize: 26 }}>
+          ${forecast.last30DaysRevenue.toFixed(0)}
+        </div>
+      </div>
+      <div style={{ fontSize: 11, color: "var(--text-dim)", textAlign: "right" }}>
+        <div>{forecast.paidJobsLast30Days} paid job(s) in the last 30 days</div>
+        <div className={`pill ${forecast.confidence === "established" ? "ok" : forecast.confidence === "early" ? "warn" : ""}`} style={{ marginTop: 4 }}>
+          {CONFIDENCE_LABEL[forecast.confidence]}
+        </div>
       </div>
     </div>
   );

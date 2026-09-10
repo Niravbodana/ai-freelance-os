@@ -56,6 +56,7 @@ model Job {
   feasibilityNote String?
   applyEmail   String?
   externalMeta Json?
+  contractSentAt DateTime?
   client       Client?    @relation(fields: [clientId], references: [id])
   clientId     String?
   createdAt    DateTime   @default(now())
@@ -118,13 +119,22 @@ model Payment {
 }
 
 model Deliverable {
-  id          String   @id @default(cuid())
-  job         Job      @relation(fields: [jobId], references: [id])
-  jobId       String   @unique
-  content     String
-  qaPassed    Boolean  @default(false)
-  deliveredAt DateTime?
-  createdAt   DateTime @default(now())
+  id            String    @id @default(cuid())
+  job           Job       @relation(fields: [jobId], references: [id])
+  jobId         String    @unique
+  content       String
+  qaPassed      Boolean   @default(false)
+  // The revision loop: a QA fail (deliveryAgent.js) or a client-requested
+  // revision post-delivery (inboxAgent.js) sets needsRevision + a reason,
+  // which Worker Agent reads on its next run instead of blindly
+  // regenerating from scratch. pipelineAgent.js only re-runs Delivery
+  // Agent's QA check once needsRevision is cleared, so it never re-checks
+  // stale, unrevised content in a loop.
+  needsRevision Boolean   @default(false)
+  qaFeedback    String?
+  revisionNotes String?
+  deliveredAt   DateTime?
+  createdAt     DateTime  @default(now())
 }
 
 enum AgentType {
@@ -138,6 +148,7 @@ enum AgentType {
   PIPELINE
   TESTIMONIAL
   LEADS
+  CONTRACT
 }
 
 model AgentRun {

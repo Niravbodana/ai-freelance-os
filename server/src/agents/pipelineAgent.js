@@ -2,29 +2,83 @@ import { prisma } from "../db/client.js";
 import { runWorkerAgent, SUPPORTED_CATEGORIES } from "./workerAgent.js";
 import { runDeliveryAgent } from "./deliveryAgent.js";
 import { invoiceJob } from "./paymentAgent.js";
+import { sendContract } from "./contractAgent.js";
 import { recordIncident } from "../services/incidents.js";
+
+const NEW_CLIENT_RISK_SOURCES = new Set(["OUTREACH", "MANUAL"]);
 
 /**
  * The self-driving state machine: once a job is ACCEPTED, nothing further
  * needs a human. This sweep finds jobs sitting at each stage and pushes
- * them to the next one — Worker → Delivery/QA → Invoice — on its own
- * schedule (scheduler.js), independent of whatever triggered the ACCEPTED
- * status (Inbox Agent auto-detection, or a manual "mark accepted" tap).
- * Each called agent already records its own Incident/retry on failure, so
- * this loop just needs to keep moving and never let one job's failure
- * block the rest of the batch.
+ * them to the next one — Contract → Worker → Delivery/QA → Invoice — on
+ * its own schedule (scheduler.js), independent of whatever triggered the
+ * ACCEPTED status (Inbox Agent auto-detection, or a manual "mark
+ * accepted" tap). Each called agent already records its own
+ * Incident/retry on failure, so this loop just needs to keep moving and
+ * never let one job's failure block the rest of the batch.
  */
 export async function advancePipeline() {
   let workerRuns = 0;
   let deliveryRuns = 0;
   let invoiceRuns = 0;
+  let contractsSent = 0;
+
+  // Sources without a platform-level agreement (Upwork/Freelancer/Guru all
+  // have their own terms of service covering the engagement) get a simple
+  // service agreement emailed automatically — a paper trail that protects
+  // both sides if a payment dispute ever comes up. Fires once per job
+  // (contractSentAt guards it) and never blocks the rest of the pipeline.
+  const toContract = await prisma.job.findMany({
+    where: { status: "ACCEPTED", contractSentAt: null, source: { in: [...NEW_CLIENT_RISK_SOURCES] } },
+  });
+  for (const job of toContract) {
+    try {
+      const result = await sendContract(job.id);
+      if (result.sent) contractsSent += 1;
+    } catch (err) {
+      console.error(`[pipeline] contract send failed for job ${job.id} (incident recorded, will retry):`, err.message);
+    }
+  }
+
+  // A first-time (non-recurring) outreach/manual client has no track
+  // record and no platform escrow behind them — flag it once as a
+  // deposit-before-work recommendation rather than silently doing full
+  // unpaid work for a stranger. This is advisory only (an Incident the
+  // owner sees and can act on with the existing manual invoice/worker
+  // buttons), not an automated payment gate — safer than adding a second
+  // payment-per-job state to the schema under time pressure.
+  const riskyAccepted = await prisma.job.findMany({
+    where: { status: "ACCEPTED", deliverable: null, source: { in: [...NEW_CLIENT_RISK_SOURCES] } },
+    include: { client: true },
+  });
+  for (const job of riskyAccepted) {
+    if (job.client?.isRecurring) continue;
+    const alreadyFlagged = await prisma.incident.findFirst({
+      where: { source: "PIPELINE_DEPOSIT_RECOMMENDED", jobId: job.id },
+    });
+    if (alreadyFlagged) continue;
+    await recordIncident({
+      source: "PIPELINE_DEPOSIT_RECOMMENDED",
+      jobId: job.id,
+      message: `"${job.title}" is a first-time ${job.source.toLowerCase()} client with no payment track record — consider invoicing a deposit before Worker Agent runs (both are available from the Jobs tab).`,
+      maxRetries: 0,
+    });
+  }
 
   // Worker Agent's scope is whatever categories have a prompt in
   // workerAgent.js (currently content + data) — filter here rather than
   // let it throw every 10 minutes forever for categories it was never
-  // meant to handle.
+  // meant to handle. Also picks up revisions (needsRevision=true on an
+  // existing deliverable) — see workerAgent.js for how it uses the
+  // stored feedback instead of blindly regenerating.
   const toWork = await prisma.job.findMany({
-    where: { status: "ACCEPTED", deliverable: null, category: { in: SUPPORTED_CATEGORIES } },
+    where: {
+      category: { in: SUPPORTED_CATEGORIES },
+      OR: [
+        { status: "ACCEPTED", deliverable: null },
+        { status: "IN_PROGRESS", deliverable: { needsRevision: true } },
+      ],
+    },
   });
   for (const job of toWork) {
     try {
@@ -54,12 +108,15 @@ export async function advancePipeline() {
     });
   }
 
+  // Only re-run QA once a revision has actually happened (needsRevision
+  // false) — otherwise this would re-check the same stale, unrevised
+  // content every cycle forever instead of giving Worker Agent a turn.
   const toDeliver = await prisma.job.findMany({
     where: { status: "IN_PROGRESS" },
     include: { deliverable: true },
   });
   for (const job of toDeliver) {
-    if (!job.deliverable || job.deliverable.qaPassed) continue;
+    if (!job.deliverable || job.deliverable.qaPassed || job.deliverable.needsRevision) continue;
     try {
       await runDeliveryAgent(job.id);
       deliveryRuns += 1;
@@ -80,5 +137,5 @@ export async function advancePipeline() {
     }
   }
 
-  return { workerRuns, deliveryRuns, invoiceRuns };
+  return { workerRuns, deliveryRuns, invoiceRuns, contractsSent };
 }
