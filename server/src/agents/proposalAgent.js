@@ -1,6 +1,6 @@
 import { prisma } from "../db/client.js";
 import { askClaude } from "../services/claude.js";
-import { notifications } from "../services/notify.js";
+import { notifications, sendProposalEmail } from "../services/notify.js";
 
 const SYSTEM_PROMPT = `You are a freelance proposal writer and rate negotiator. Given a job post,
 write a short, specific, non-generic proposal (120-180 words) that:
@@ -15,10 +15,20 @@ After the proposal, on a new line write "RATE: <your proposed rate as a short st
 /**
  * Sources where we control the whole relationship (our own outreach/website)
  * carry no marketplace ToS restriction, so an approved-feasible job there can
- * be sent automatically. Marketplace sources (Upwork etc.) always require a
- * human tap before sending — see README for why.
+ * be sent automatically. A REMOTE_BOARD posting that published an apply-by
+ * -email address is the same thing — the poster explicitly invited emailed
+ * applications, so emailing them a proposal is a normal job application, not
+ * automated bidding. Marketplaces without an official bidding API (Upwork,
+ * and Freelancer/Guru until their API adapters are wired in) always require
+ * a human tap before sending — see README for why.
  */
-const AUTO_SEND_SOURCES = new Set(["OUTREACH", "MANUAL"]);
+const ALWAYS_AUTO_SEND_SOURCES = new Set(["OUTREACH", "MANUAL"]);
+
+function canAutoSend(job) {
+  if (ALWAYS_AUTO_SEND_SOURCES.has(job.source)) return true;
+  if (job.source === "REMOTE_BOARD" && job.applyEmail) return true;
+  return false;
+}
 
 export async function draftProposal(jobId) {
   const job = await prisma.job.findUniqueOrThrow({ where: { id: jobId } });
@@ -37,7 +47,7 @@ export async function draftProposal(jobId) {
     const proposedRate = rateMatch ? rateMatch[1].trim() : null;
     const draftText = raw.replace(/RATE:\s*.+/i, "").trim();
 
-    const canAutoSend = AUTO_SEND_SOURCES.has(job.source);
+    const autoSend = canAutoSend(job);
 
     const proposal = await prisma.proposal.upsert({
       where: { jobId },
@@ -45,20 +55,23 @@ export async function draftProposal(jobId) {
         jobId,
         draftText,
         proposedRate,
-        autoSent: canAutoSend,
-        approved: canAutoSend,
-        approvedAt: canAutoSend ? new Date() : null,
-        sentAt: canAutoSend ? new Date() : null,
+        autoSent: autoSend,
+        approved: autoSend,
+        approvedAt: autoSend ? new Date() : null,
+        sentAt: autoSend ? new Date() : null,
       },
       update: { draftText, proposedRate },
     });
 
     await prisma.job.update({
       where: { id: jobId },
-      data: { status: canAutoSend ? "PROPOSAL_SENT" : "PENDING_APPROVAL" },
+      data: { status: autoSend ? "PROPOSAL_SENT" : "PENDING_APPROVAL" },
     });
 
-    if (canAutoSend) {
+    if (autoSend) {
+      if (job.applyEmail) {
+        await sendProposalEmail({ to: job.applyEmail, subject: `Application: ${job.title}`, text: draftText });
+      }
       await notifications.autoSent(job);
     } else {
       await notifications.approvalNeeded(job);

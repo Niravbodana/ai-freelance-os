@@ -14,17 +14,30 @@ those sources the Proposal Agent drafts and negotiates a rate, but a human
 taps approve (from an email notification, one tap) before anything is
 sent.
 
-On sources we fully control — our own outreach (cold email/LinkedIn leads)
-or direct/manual clients — there's no such restriction, so the Proposal
-Agent sends automatically once a job passes the feasibility gate.
+On sources we fully control — our own outreach (cold email/LinkedIn leads),
+direct/manual clients, official partner APIs (Freelancer.com, Guru.com —
+adapters not wired in yet), or a public job board that published an
+apply-by-email address (they invited applications; emailing them a
+proposal is a normal application, not spam) — there's no such restriction,
+so the Proposal Agent sends automatically once a job passes the
+feasibility gate. What this project will never do: scrape login-walled
+pages, or auto-post pitches into comment sections/social feeds where
+nobody asked for them — that's ToS-violating spam on essentially every
+platform, and the fastest way to get every account and the business itself
+banned. "Everywhere on the internet" means every source that either has an
+official API or explicitly invites applications, not literally anywhere.
 
 ## Agent pipeline
 
 1. **Hunter Agent** (`hunterAgent.js`) — polls registered job sources every
-   15 min and inserts new jobs as `DISCOVERED`. Upwork has no public
-   bidding API, so that adapter is a stub — wire in an RSS/search-result
-   parser or a reviewed browser automation job there. Manual/outreach leads
-   are added directly via the dashboard.
+   15 min and inserts new jobs as `DISCOVERED`. Live adapters
+   (`agents/sources/remoteJobBoards.js`): RemoteOK's public JSON API and
+   WeWorkRemotely's RSS feeds — both published for software to consume.
+   Upwork has no public bidding API, so that adapter stays a stub (wiring in
+   scraping/unofficial automation there would violate its ToS and risk the
+   account). Freelancer.com and Guru.com both have official bidding APIs —
+   next in line to wire in, at which point they join the auto-send list
+   below. Manual/outreach leads are added directly via the dashboard.
 2. **Feasibility Agent** (`feasibilityAgent.js`) — the "if we can do it,
    take it; if not, skip it" gate. Every discovered job is checked against
    an explicit capability statement before a single word of proposal is
@@ -33,9 +46,11 @@ Agent sends automatically once a job passes the feasibility gate.
    system is allowed to say yes to — widen it deliberately, category by
    category.
 3. **Proposal Agent** (`proposalAgent.js`) — drafts a tailored proposal
-   with a market-researched rate. `OUTREACH`/`MANUAL` jobs auto-send;
-   marketplace jobs go to `PENDING_APPROVAL` and notify the owner by email
-   for a one-tap approve/edit.
+   with a market-researched rate. Auto-sends for `OUTREACH`/`MANUAL` jobs,
+   and for `REMOTE_BOARD` jobs where the posting published an apply-by-email
+   address (an actual email is sent to it). Everything else — Upwork, and
+   any source without an official bidding API — goes to `PENDING_APPROVAL`
+   and notifies the owner by email for a one-tap approve/edit.
 4. **Worker Agent** (`workerAgent.js`) — MVP scope is the `content`
    category only, where a single AI pass reliably produces a deliverable
    matching the brief. Other categories route to manual fulfillment until a
@@ -92,7 +107,8 @@ to the console.
 
 ## Roadmap
 
-- [ ] Real Upwork job-source adapter (RSS/search parsing)
+- [ ] Freelancer.com + Guru.com official API adapters (auto-bid, no approval gate needed)
+- [ ] More RemoteOK/WeWorkRemotely-style public-feed job boards
 - [ ] Outreach lead capture (cold email/LinkedIn) feeding the same pipeline
 - [ ] Category-specific Worker Agents beyond `content` (data, code)
 - [ ] Client-facing status page per job

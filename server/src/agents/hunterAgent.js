@@ -1,11 +1,18 @@
 import { prisma } from "../db/client.js";
 import { checkFeasibility } from "./feasibilityAgent.js";
 import { draftProposal } from "./proposalAgent.js";
+import { remoteOkAdapter, weWorkRemotelyAdapter } from "./sources/remoteJobBoards.js";
 
 /**
  * Hunter Agent — discovers new jobs from pluggable sources.
- * Each source adapter must return an array of { title, description, budget, category, externalUrl, source }.
- * Real scraping/API integration for Upwork and outreach lead lists plugs in here.
+ * Each source adapter must return an array of
+ * { title, description, budget, category, externalUrl, source, applyEmail? }.
+ *
+ * Every adapter here is deliberately limited to sources that are either (a)
+ * an official API meant for programmatic use, or (b) a public feed (RSS/JSON)
+ * a site publishes specifically for aggregators/software to consume. No
+ * adapter here scrapes login-walled pages, arbitrary comment sections, or
+ * anything a site's own terms ask not to be automated — see README for why.
  */
 
 const sourceAdapters = [];
@@ -14,13 +21,15 @@ export function registerJobSource(adapterFn) {
   sourceAdapters.push(adapterFn);
 }
 
-// Placeholder adapter: manual/outreach leads entered via the dashboard land in
-// the DB directly with status DISCOVERED, so no polling needed for those.
-// Upwork has no public bidding API — this adapter is where an RSS/search-result
-// parser (or a reviewed browser-automation job) would be wired in.
+// Upwork has no public bidding API — this stays a stub. Wiring in scraping
+// or unofficial automation here would violate Upwork's ToS and risk the
+// account; if Upwork ever opens a partner API, it plugs in here instead.
 registerJobSource(async function upworkStub() {
   return [];
 });
+
+registerJobSource(remoteOkAdapter);
+registerJobSource(weWorkRemotelyAdapter);
 
 export async function runHunterAgent() {
   const run = await prisma.agentRun.create({
@@ -30,7 +39,15 @@ export async function runHunterAgent() {
   let discovered = 0;
   try {
     for (const adapter of sourceAdapters) {
-      const jobs = await adapter();
+      let jobs = [];
+      try {
+        jobs = await adapter();
+      } catch (adapterErr) {
+        // One source being down (network blip, feed format change) shouldn't
+        // stop the others from being polled this cycle.
+        console.error(`[hunter] adapter ${adapter.name} failed:`, adapterErr);
+        continue;
+      }
       for (const job of jobs) {
         const exists = job.externalUrl
           ? await prisma.job.findFirst({ where: { externalUrl: job.externalUrl } })
@@ -45,6 +62,7 @@ export async function runHunterAgent() {
             description: job.description,
             budget: job.budget,
             category: job.category,
+            applyEmail: job.applyEmail ?? null,
             status: "DISCOVERED",
           },
         });

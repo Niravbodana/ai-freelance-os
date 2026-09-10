@@ -9,6 +9,9 @@ datasource db {
 
 enum JobSource {
   UPWORK
+  FREELANCER
+  GURU
+  REMOTE_BOARD
   OUTREACH
   MANUAL
 }
@@ -51,6 +54,7 @@ model Job {
   matchScore   Float?
   feasible     Boolean?
   feasibilityNote String?
+  applyEmail   String?
   client       Client?    @relation(fields: [clientId], references: [id])
   clientId     String?
   createdAt    DateTime   @default(now())

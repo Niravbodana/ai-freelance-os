@@ -33,6 +33,21 @@ export async function notifyOwner(subject, text) {
   });
 }
 
+/**
+ * Sends the actual proposal to a client's application email — used only for
+ * job posts that explicitly published an "apply by email" address (they
+ * invited applications; this is a normal job application, not cold spam).
+ */
+export async function sendProposalEmail({ to, subject, text }) {
+  const t = getTransporter();
+  if (!t) {
+    console.log(`[notify] (SMTP not configured, would send to ${to}) ${subject}`);
+    return { sent: false };
+  }
+  await t.sendMail({ from: process.env.SMTP_FROM || process.env.SMTP_USER, to, subject, text });
+  return { sent: true };
+}
+
 export const notifications = {
   approvalNeeded: (job) =>
     notifyOwner(
