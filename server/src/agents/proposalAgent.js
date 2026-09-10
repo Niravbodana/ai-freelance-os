@@ -2,6 +2,7 @@ import { prisma } from "../db/client.js";
 import { askClaude } from "../services/claude.js";
 import { notifications, sendProposalEmail } from "../services/notify.js";
 import { placeFreelancerBid } from "./sources/freelancerCom.js";
+import { recordIncident, registerRetryHandler } from "../services/incidents.js";
 
 const SYSTEM_PROMPT = `You are a freelance proposal writer and rate negotiator. Given a job post,
 write a short, specific, non-generic proposal (120-180 words) that:
@@ -44,7 +45,9 @@ export async function draftProposal(jobId) {
   try {
     const raw = await askClaude(
       SYSTEM_PROMPT,
-      `Job title: ${job.title}\nCategory: ${job.category}\nClient's stated budget: ${job.budget ?? "not specified"}\n\nJob description:\n${job.description}`
+      `Job title: ${job.title}\nCategory: ${job.category}\nClient's stated budget: ${job.budget ?? "not specified"}\n\nJob description:\n${job.description}`,
+      1024,
+      { agent: "PROPOSAL", jobId }
     );
 
     const rateMatch = raw.match(/RATE:\s*(.+)/i);
@@ -109,10 +112,12 @@ export async function draftProposal(jobId) {
       where: { id: run.id },
       data: { status: "FAILED", log: String(err), finishedAt: new Date() },
     });
-    await notifications.agentFailed("Proposal", job.title, err);
+    await recordIncident({ source: "PROPOSAL", jobId, message: err.message || err, stack: err.stack });
     throw err;
   }
 }
+
+registerRetryHandler("PROPOSAL", draftProposal);
 
 export async function approveProposal(jobId, editedText) {
   const proposal = await prisma.proposal.update({

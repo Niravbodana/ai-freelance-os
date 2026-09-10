@@ -140,3 +140,34 @@ model AgentRun {
   startedAt DateTime  @default(now())
   finishedAt DateTime?
 }
+
+// Every Claude API call is logged here — this is the real, self-tracked
+// source of truth for "how much have we used" and "what has it cost us",
+// since the API itself doesn't expose an overall account-quota endpoint.
+model UsageLog {
+  id           String   @id @default(cuid())
+  agent        String
+  jobId        String?
+  inputTokens  Int
+  outputTokens Int
+  costUsd      Float
+  createdAt    DateTime @default(now())
+}
+
+// The self-healing log: every agent failure becomes an Incident. A
+// scheduled sweep retries it automatically; only once retries are
+// exhausted (or there's no automatic retry path) does it get ESCALATED,
+// which is the one moment a human is actually needed.
+model Incident {
+  id            String   @id @default(cuid())
+  source        String
+  jobId         String?
+  message       String
+  stack         String?
+  retryCount    Int      @default(0)
+  maxRetries    Int      @default(3)
+  status        String   @default("OPEN") // OPEN | RESOLVED | ESCALATED
+  lastAttemptAt DateTime?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+}

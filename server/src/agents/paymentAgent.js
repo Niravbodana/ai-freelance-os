@@ -1,6 +1,7 @@
 import { prisma } from "../db/client.js";
 import { pickProvider, createInvoiceLink } from "../services/payments.js";
 import { notifications } from "../services/notify.js";
+import { recordIncident, registerRetryHandler } from "../services/incidents.js";
 
 const REMINDER_INTERVAL_DAYS = 3;
 const DUE_IN_DAYS = 7;
@@ -43,10 +44,12 @@ export async function invoiceJob(jobId, { amount, currency = "USD", clientEmail 
     return payment;
   } catch (err) {
     await prisma.agentRun.update({ where: { id: run.id }, data: { status: "FAILED", log: String(err), finishedAt: new Date() } });
-    await notifications.agentFailed("Payment (invoice)", job.title, err);
+    await recordIncident({ source: "PAYMENT", jobId, message: err.message || err, stack: err.stack });
     throw err;
   }
 }
+
+registerRetryHandler("PAYMENT", invoiceJob);
 
 export async function markPaid(jobId) {
   await prisma.payment.update({ where: { jobId }, data: { status: "PAID", paidAt: new Date() } });

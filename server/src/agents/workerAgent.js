@@ -1,5 +1,6 @@
 import { prisma } from "../db/client.js";
 import { askClaude } from "../services/claude.js";
+import { recordIncident, registerRetryHandler } from "../services/incidents.js";
 
 const SYSTEM_PROMPT = `You are a professional freelance content writer completing a paid job.
 Produce the final deliverable exactly to the brief: correct length, tone, and format.
@@ -27,7 +28,8 @@ export async function runWorkerAgent(jobId) {
     const content = await askClaude(
       SYSTEM_PROMPT,
       `Client brief:\n${job.description}`,
-      2048
+      2048,
+      { agent: "WORKER", jobId }
     );
 
     const deliverable = await prisma.deliverable.upsert({
@@ -48,6 +50,9 @@ export async function runWorkerAgent(jobId) {
       where: { id: run.id },
       data: { status: "FAILED", log: String(err), finishedAt: new Date() },
     });
+    await recordIncident({ source: "WORKER", jobId, message: err.message || err, stack: err.stack });
     throw err;
   }
 }
+
+registerRetryHandler("WORKER", runWorkerAgent);

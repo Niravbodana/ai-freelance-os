@@ -77,10 +77,18 @@ export async function runHunterAgent() {
 
         // Every newly discovered job is gated by feasibility before a
         // proposal is ever drafted — "if we can deliver it, take it; if not,
-        // skip it" is enforced here, not left to a human to remember.
-        const { feasible } = await checkFeasibility(created.id);
-        if (feasible) {
-          await draftProposal(created.id);
+        // skip it" is enforced here, not left to a human to remember. Each
+        // job's processing is isolated: checkFeasibility/draftProposal
+        // already record their own Incident and get retried by the
+        // incident sweep, so one bad job must not stop the rest of this
+        // batch from being processed.
+        try {
+          const { feasible } = await checkFeasibility(created.id);
+          if (feasible) {
+            await draftProposal(created.id);
+          }
+        } catch (jobErr) {
+          console.error(`[hunter] processing job ${created.id} failed (will retry via incident sweep):`, jobErr);
         }
       }
     }

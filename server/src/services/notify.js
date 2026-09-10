@@ -68,6 +68,4 @@ export const notifications = {
       `Payment overdue: ${job.title}`,
       `Invoice for "${job.title}" (${payment.amount} ${payment.currency}) is overdue. Reminder #${payment.reminderCount + 1} sent to client.`
     ),
-  agentFailed: (agentName, jobTitle, err) =>
-    notifyOwner(`Agent error: ${agentName}`, `Job: ${jobTitle ?? "n/a"}\nError: ${err}`),
 };

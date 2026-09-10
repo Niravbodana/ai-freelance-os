@@ -1,6 +1,7 @@
 import { prisma } from "../db/client.js";
 import { askClaude } from "../services/claude.js";
 import { notifications } from "../services/notify.js";
+import { recordIncident, registerRetryHandler } from "../services/incidents.js";
 
 const QA_SYSTEM_PROMPT = `You are a strict QA reviewer for freelance deliverables.
 Compare the deliverable against the client brief. Reply with exactly one word,
@@ -29,7 +30,8 @@ export async function runDeliveryAgent(jobId) {
     const verdict = await askClaude(
       QA_SYSTEM_PROMPT,
       `Client brief:\n${job.description}\n\nDeliverable:\n${job.deliverable.content}`,
-      100
+      100,
+      { agent: "DELIVERY", jobId }
     );
     const qaPassed = verdict.trim().toUpperCase().startsWith("PASS");
 
@@ -58,6 +60,9 @@ export async function runDeliveryAgent(jobId) {
       where: { id: run.id },
       data: { status: "FAILED", log: String(err), finishedAt: new Date() },
     });
+    await recordIncident({ source: "DELIVERY", jobId, message: err.message || err, stack: err.stack });
     throw err;
   }
 }
+
+registerRetryHandler("DELIVERY", runDeliveryAgent);

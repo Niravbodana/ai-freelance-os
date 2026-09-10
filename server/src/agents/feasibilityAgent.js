@@ -1,6 +1,7 @@
 import { prisma } from "../db/client.js";
 import { askClaude } from "../services/claude.js";
 import { notifications } from "../services/notify.js";
+import { recordIncident, registerRetryHandler } from "../services/incidents.js";
 
 // What the system is actually allowed to say "yes" to. This is the single
 // source of truth for capability — extend it deliberately, category by
@@ -37,7 +38,8 @@ export async function checkFeasibility(jobId) {
     const verdict = await askClaude(
       SYSTEM_PROMPT,
       `Title: ${job.title}\nCategory: ${job.category}\nBudget: ${job.budget ?? "n/a"}\n\n${job.description}`,
-      150
+      150,
+      { agent: "FEASIBILITY", jobId }
     );
     const [firstLine, ...rest] = verdict.trim().split("\n");
     const feasible = firstLine.trim().toUpperCase().startsWith("YES");
@@ -67,7 +69,9 @@ export async function checkFeasibility(jobId) {
       where: { id: run.id },
       data: { status: "FAILED", log: String(err), finishedAt: new Date() },
     });
-    await notifications.agentFailed("Feasibility", job.title, err);
+    await recordIncident({ source: "FEASIBILITY", jobId, message: err.message || err, stack: err.stack });
     throw err;
   }
 }
+
+registerRetryHandler("FEASIBILITY", checkFeasibility);

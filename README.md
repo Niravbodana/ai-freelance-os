@@ -82,19 +82,48 @@ Clients who pay across 2+ completed jobs are automatically flagged
 
 ## Command centre dashboard
 
-`GET /api/stats` (surfaced as a summary bar at the top of the dashboard)
-gives a one-glance view: how many jobs need your approval right now, how
-many payments are overdue, jobs in flight vs. delivered vs. paid, recurring
-client count, and revenue collected vs. outstanding — so you don't have to
-scroll the job list to know whether anything needs you.
+`GET /api/stats` (the summary bar at the top of the dashboard, auto-
+refreshing every 30s) gives a one-glance view of the whole operation:
+
+- Jobs needing your approval, jobs in flight/delivered/paid, recurring
+  clients, revenue collected vs. outstanding, overdue payments.
+- **Claude usage**: tokens used and estimated cost this month, budget
+  remaining (if you set `CLAUDE_MONTHLY_BUDGET_USD`), and the live
+  `anthropic-ratelimit-*` headers from the most recent API call — that
+  part is real data straight from the API, not an estimate. There's no
+  API endpoint for "total account quota remaining" (that lives on
+  console.anthropic.com's billing page), so cost tracking here is
+  self-computed from every call's actual token usage — see `UsageLog` in
+  the schema and `services/claude.js`.
+- **Incidents**: how many failures are being auto-retried right now vs.
+  how many actually need you (`ESCALATED`).
+
+## Self-healing (automatic error handling)
+
+Every agent failure becomes an `Incident` instead of just a log line. A
+5-minute sweep (`services/incidents.js`, `retrySweep()`) retries it
+automatically — up to `maxRetries` (default 3) — by re-running the exact
+agent function that failed. Only once retries are exhausted, or a failure
+has no automatic retry path (a system-level crash, a payment-sweep
+failure), does it get `ESCALATED` and you get an email — that's the one
+moment this system actually needs you; everything else is meant to fix
+itself without anyone noticing. Process-level crashes (`uncaughtException`,
+`unhandledRejection`) and any route error that slips past a handler's own
+try/catch are also caught centrally (`index.js`) and escalated the same
+way, so nothing fails silently into a dead process.
+
+The dashboard's Incidents panel shows exactly this: an "needs you" section
+for escalated incidents (with a resolve button once you've handled it),
+and a collapsed "being retried automatically" section so the self-healing
+loop isn't a black box.
 
 ## Notifications
 
 Every event that needs a human — a marketplace proposal pending approval, a
-job skipped as not feasible, a failed QA pass, an overdue payment, an agent
-error — emails the owner (`OWNER_EMAIL`), so nothing needs the dashboard
-open to be seen. Configure `SMTP_*` in `.env`; without it, events just log
-to the console instead of failing silently.
+job skipped as not feasible, a failed QA pass, an overdue payment, an
+escalated incident — emails the owner (`OWNER_EMAIL`), so nothing needs the
+dashboard open to be seen. Configure `SMTP_*` in `.env`; without it, events
+just log to the console instead of failing silently.
 
 ## Stack
 
@@ -126,6 +155,7 @@ to the console.
 
 ## Roadmap
 
+- [ ] Verify Claude per-token pricing in `.env` against your actual plan (defaults are placeholders)
 - [ ] Guru.com API adapter once partner credentials are granted
 - [ ] More RemoteOK/WeWorkRemotely-style public-feed job boards
 - [ ] Outreach lead capture (cold email/LinkedIn) feeding the same pipeline

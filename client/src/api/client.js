@@ -22,4 +22,7 @@ export const api = {
   runHunter: () => request(`/agents/hunter/run`, { method: "POST" }),
   listRuns: () => request(`/agents/runs`),
   stats: () => request(`/stats`),
+  listIncidents: (status) => request(`/incidents${status ? `?status=${status}` : ""}`),
+  resolveIncident: (id) => request(`/incidents/${id}/resolve`, { method: "POST" }),
+  retryIncidentsNow: () => request(`/incidents/retry-now`, { method: "POST" }),
 };
