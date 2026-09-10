@@ -56,6 +56,45 @@ export async function weWorkRemotelyAdapter() {
   return results;
 }
 
+// Remotive runs a public, no-auth JSON API explicitly meant for reuse —
+// no signup, no approval process, works today.
+export async function remotiveAdapter() {
+  const res = await fetch("https://remotive.com/api/remote-jobs?limit=40", {
+    headers: { "User-Agent": "ai-freelance-os (contact: " + (getConfig("OWNER_EMAIL") || "n/a") + ")" },
+  });
+  if (!res.ok) return [];
+  const data = await res.json();
+  const jobs = data?.jobs || [];
+  return jobs.map((job) => ({
+    source: "REMOTE_BOARD",
+    externalUrl: job.url,
+    title: job.title,
+    description: stripHtml(job.description || job.title),
+    budget: job.salary || null,
+    category: guessCategory([job.category, job.title]),
+    applyEmail: extractEmail(job.description || ""),
+  }));
+}
+
+// Arbeitnow also runs a public, no-auth JSON API — same deal, no gatekeeping.
+export async function arbeitnowAdapter() {
+  const res = await fetch("https://www.arbeitnow.com/api/job-board-api", {
+    headers: { "User-Agent": "ai-freelance-os (contact: " + (getConfig("OWNER_EMAIL") || "n/a") + ")" },
+  });
+  if (!res.ok) return [];
+  const data = await res.json();
+  const jobs = (data?.data || []).filter((job) => job.remote);
+  return jobs.slice(0, 40).map((job) => ({
+    source: "REMOTE_BOARD",
+    externalUrl: job.url,
+    title: job.title,
+    description: stripHtml(job.description || job.title),
+    budget: null,
+    category: guessCategory([...(job.tags || []), job.title]),
+    applyEmail: extractEmail(job.description || ""),
+  }));
+}
+
 function parseRssItems(xml) {
   const items = [];
   const itemBlocks = xml.split("<item>").slice(1);

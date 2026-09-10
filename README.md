@@ -33,10 +33,14 @@ applications, not literally anywhere.
 1. **Hunter Agent** (`hunterAgent.js`) — polls registered job sources every
    15 min and inserts new jobs as `DISCOVERED`. Live adapters
    (`agents/sources/`):
-   - `remoteJobBoards.js` — RemoteOK's public JSON API + WeWorkRemotely's
-     RSS feeds, both published for software to consume.
+   - `remoteJobBoards.js` — four genuinely public, no-signup, no-approval
+     job feeds, live the moment the server starts: RemoteOK's JSON API,
+     WeWorkRemotely's RSS, Remotive's JSON API, and Arbeitnow's JSON API.
+     Verified live during development (91 real jobs discovered in one run).
    - `freelancerCom.js` — Freelancer.com's official, self-service bidding
-     API (developers.freelancer.com). A no-op until credentials are set;
+     API (developers.freelancer.com). A no-op until credentials are set —
+     and in practice Freelancer sometimes declines new-account API
+     applications, so treat this as a bonus source, not a dependency;
      verify field/endpoint names against their current docs before
      depending on it, since third-party APIs drift.
    - `guruCom.js` — real adapter shape, but a deliberate no-op: Guru's API

@@ -1,7 +1,12 @@
 import { prisma } from "../db/client.js";
 import { checkFeasibility } from "./feasibilityAgent.js";
 import { draftProposal } from "./proposalAgent.js";
-import { remoteOkAdapter, weWorkRemotelyAdapter } from "./sources/remoteJobBoards.js";
+import {
+  remoteOkAdapter,
+  weWorkRemotelyAdapter,
+  remotiveAdapter,
+  arbeitnowAdapter,
+} from "./sources/remoteJobBoards.js";
 import { freelancerComAdapter } from "./sources/freelancerCom.js";
 import { guruComAdapter } from "./sources/guruCom.js";
 
@@ -30,8 +35,12 @@ registerJobSource(async function upworkStub() {
   return [];
 });
 
+// All four below are genuinely public, no-auth, no-approval-process APIs —
+// live the moment the server starts, no credentials needed at all.
 registerJobSource(remoteOkAdapter);
 registerJobSource(weWorkRemotelyAdapter);
+registerJobSource(remotiveAdapter);
+registerJobSource(arbeitnowAdapter);
 // No-ops until FREELANCER_OAUTH_TOKEN / GURU_API_KEY are configured — see
 // each adapter's file for what's needed to activate it.
 registerJobSource(freelancerComAdapter);
