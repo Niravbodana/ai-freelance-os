@@ -33,4 +33,5 @@ export const api = {
   saveSettings: (values) => request(`/admin/settings`, { method: "POST", body: JSON.stringify(values) }),
   clearSetting: (key) => request(`/admin/settings/${key}/clear`, { method: "POST" }),
   testSetting: (key) => request(`/admin/settings/${key}/test`, { method: "POST" }),
+  importLeads: (leads) => request(`/leads/bulk-import`, { method: "POST", body: JSON.stringify({ leads }) }),
 };

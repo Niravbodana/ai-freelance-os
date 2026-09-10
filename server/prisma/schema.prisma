@@ -100,19 +100,21 @@ enum PaymentStatus {
 }
 
 model Payment {
-  id             String        @id @default(cuid())
-  job            Job           @relation(fields: [jobId], references: [id])
-  jobId          String        @unique
-  provider       PaymentProvider
-  amount         Float
-  currency       String        @default("USD")
-  status         PaymentStatus @default(PENDING)
-  invoiceUrl     String?
-  dueDate        DateTime?
-  lastReminderAt DateTime?
-  reminderCount  Int           @default(0)
-  paidAt         DateTime?
-  createdAt      DateTime      @default(now())
+  id                    String        @id @default(cuid())
+  job                   Job           @relation(fields: [jobId], references: [id])
+  jobId                 String        @unique
+  provider              PaymentProvider
+  amount                Float
+  currency              String        @default("USD")
+  status                PaymentStatus @default(PENDING)
+  invoiceUrl            String?
+  dueDate               DateTime?
+  lastReminderAt        DateTime?
+  reminderCount         Int           @default(0)
+  paidAt                DateTime?
+  clientEmail           String?
+  testimonialRequestedAt DateTime?
+  createdAt             DateTime      @default(now())
 }
 
 model Deliverable {
@@ -134,6 +136,8 @@ enum AgentType {
   PAYMENT
   INBOX
   PIPELINE
+  TESTIMONIAL
+  LEADS
 }
 
 model AgentRun {

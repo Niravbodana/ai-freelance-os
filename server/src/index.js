@@ -9,6 +9,7 @@ import { agentsRouter } from "./routes/agents.js";
 import { statsRouter } from "./routes/stats.js";
 import { incidentsRouter } from "./routes/incidents.js";
 import { adminRouter } from "./routes/admin.js";
+import { leadsRouter } from "./routes/leads.js";
 import { startScheduler } from "./scheduler.js";
 import { recordAndEscalateNow } from "./services/incidents.js";
 import { loadConfigCache } from "./services/config.js";
@@ -63,6 +64,7 @@ app.use("/api/agents", agentsRouter);
 app.use("/api/stats", statsRouter);
 app.use("/api/incidents", incidentsRouter);
 app.use("/api/admin", adminRouter);
+app.use("/api/leads", leadsRouter);
 
 // Serve the built dashboard from the same origin/process as the API. This
 // is what makes the basic-auth login above "just work" via the browser's

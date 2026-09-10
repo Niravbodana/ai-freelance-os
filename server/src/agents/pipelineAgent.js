@@ -1,5 +1,5 @@
 import { prisma } from "../db/client.js";
-import { runWorkerAgent } from "./workerAgent.js";
+import { runWorkerAgent, SUPPORTED_CATEGORIES } from "./workerAgent.js";
 import { runDeliveryAgent } from "./deliveryAgent.js";
 import { invoiceJob } from "./paymentAgent.js";
 import { recordIncident } from "../services/incidents.js";
@@ -19,11 +19,12 @@ export async function advancePipeline() {
   let deliveryRuns = 0;
   let invoiceRuns = 0;
 
-  // Worker Agent's MVP scope is "content" only (see workerAgent.js) — filter
-  // here rather than let it throw every 10 minutes forever for categories
-  // it was never meant to handle.
+  // Worker Agent's scope is whatever categories have a prompt in
+  // workerAgent.js (currently content + data) — filter here rather than
+  // let it throw every 10 minutes forever for categories it was never
+  // meant to handle.
   const toWork = await prisma.job.findMany({
-    where: { status: "ACCEPTED", deliverable: null, category: "content" },
+    where: { status: "ACCEPTED", deliverable: null, category: { in: SUPPORTED_CATEGORIES } },
   });
   for (const job of toWork) {
     try {
@@ -38,7 +39,7 @@ export async function advancePipeline() {
   // flag each one exactly once (maxRetries: 0 skips the pointless retry
   // loop and escalates straight to the owner on the next incident sweep).
   const needsManualWork = await prisma.job.findMany({
-    where: { status: "ACCEPTED", deliverable: null, category: { not: "content" } },
+    where: { status: "ACCEPTED", deliverable: null, category: { notIn: SUPPORTED_CATEGORIES } },
   });
   for (const job of needsManualWork) {
     const alreadyFlagged = await prisma.incident.findFirst({

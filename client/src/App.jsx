@@ -7,6 +7,7 @@ import IncidentsPanel from "./components/IncidentsPanel.jsx";
 import PerformancePanel from "./components/PerformancePanel.jsx";
 import ActivityFeed from "./components/ActivityFeed.jsx";
 import AdminSettings from "./components/AdminSettings.jsx";
+import LeadsImport from "./components/LeadsImport.jsx";
 
 const AUTO_REFRESH_MS = 30_000;
 const TABS = ["Command Centre", "Jobs", "Admin Settings"];
@@ -110,6 +111,7 @@ export default function App() {
 
       {tab === "Jobs" && (
         <>
+          <LeadsImport onImported={refresh} />
           <NewJobForm onCreated={refresh} />
           {loading && <p style={{ color: "var(--text-dim)" }}>Loading...</p>}
           {jobs.length === 0 && !loading && (

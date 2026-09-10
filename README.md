@@ -66,11 +66,13 @@ applications, not literally anywhere.
    sent). Everything else — Upwork, Guru until its API is live — goes to
    `PENDING_APPROVAL` and notifies the owner by email for a one-tap
    approve/edit.
-4. **Worker Agent** (`workerAgent.js`) — MVP scope is the `content`
-   category only, where a single AI pass reliably produces a deliverable
-   matching the brief. Other categories route to manual fulfillment until a
-   category-specific worker is built — a deliberate scope limit, not a
-   placeholder to be silently widened.
+4. **Worker Agent** (`workerAgent.js`) — scope is `content` and `data`
+   (research/structured-data-summarization), each with its own prompt in
+   `SYSTEM_PROMPTS`; `SUPPORTED_CATEGORIES` is the single source of truth
+   the Pipeline Agent reads to decide what it can run unattended. Other
+   categories route to manual fulfillment until a category-specific
+   worker is added — a deliberate scope limit, not a placeholder to be
+   silently widened.
 5. **Delivery Agent** (`deliveryAgent.js`) — QA pass comparing the
    deliverable against the original brief before marking `DELIVERED`. A
    failed check keeps the job `IN_PROGRESS` instead of shipping bad work,
@@ -84,13 +86,13 @@ applications, not literally anywhere.
    10 min (`services/inbox.js`, IMAP) for replies to emailed proposals,
    matches each one to its job by sender address, and classifies intent
    with Claude: `ACCEPTED` moves the job to `ACCEPTED` (the Pipeline Agent
-   takes it from there); `REJECTED` closes it; `COUNTER_OFFER` notifies the
-   owner with the countered rate — that's a real decision, not something
-   auto-accepted; `QUESTION`/anything unclear notifies the owner with the
-   message and an AI-drafted reply to review before sending. Only works for
-   sources we emailed a proposal to (`applyEmail` set) — Upwork and other
-   marketplace messaging still need the dashboard's manual "Mark
-   accepted/rejected" buttons.
+   takes it from there); `REJECTED` closes it; `QUESTION`/anything unclear
+   notifies the owner with the message and an AI-drafted reply to review
+   before sending. `COUNTER_OFFER` is negotiated automatically within a
+   band (see below) and only escalated to the owner outside it. Only
+   works for sources we emailed a proposal to (`applyEmail` set) — Upwork
+   and other marketplace messaging still need the dashboard's manual
+   "Mark accepted/rejected" buttons.
 8. **Pipeline Agent** (`pipelineAgent.js`) — the self-driving state
    machine: every 10 min it finds `ACCEPTED` jobs with no deliverable and
    runs the Worker Agent, `IN_PROGRESS` jobs with an un-QA'd deliverable
@@ -98,6 +100,26 @@ applications, not literally anywhere.
    invoices them. This is what makes "client says yes" the last moment a
    human needs to be involved — everything after it runs unattended on its
    own schedule, independent of whatever triggered the `ACCEPTED` status.
+9. **Testimonial Agent** (`testimonialAgent.js`) — fires automatically
+   from `markPaid()`: emails the client a short, warm request for a
+   testimonial/review once, guarded by `Payment.testimonialRequestedAt`.
+   The reputation flywheel — a good outcome the performance feedback loop
+   below can't see on its own (it only knows accepted/rejected rates).
+10. **Leads Agent** (`leadsAgent.js`, `/api/leads/bulk-import`) —
+    deliberately *not* a web-crawler that finds targets on its own
+    (picking relevant, consensual outreach targets stays a business
+    decision, not something automated); it takes a lead list you paste in
+    (dashboard → Jobs tab → Bulk Outreach Import — company name, email,
+    optional note per line) and turns each into a feasibility check + a
+    personalized, auto-sent proposal. Same OUTREACH auto-send rules as
+    everywhere else — no marketplace ToS applies to outreach you control.
+
+**Auto-negotiation**: when the Inbox Agent detects a `COUNTER_OFFER`, it
+compares the countered rate to the original ask — within 20%
+(`ACCEPTABLE_COUNTER_BAND` in `inboxAgent.js`) it auto-accepts, confirms
+with the client by email, and updates the proposal's rate, so a deal that's
+clearly fine doesn't sit waiting on a human. Outside that band it still
+notifies the owner for a real decision, same as before.
 
 Clients who pay across 2+ completed jobs are automatically flagged
 `isRecurring` on their client record, for prioritizing repeat relationships.
@@ -282,16 +304,18 @@ they're unset; that's a real gap, not a convenience default.
 
 - [ ] Verify Claude per-token pricing in `.env` against your actual plan (defaults are placeholders)
 - [ ] Guru.com API adapter once partner credentials are granted
-- [ ] More RemoteOK/WeWorkRemotely-style public-feed job boards
-- [ ] Outreach lead capture (cold email/LinkedIn) feeding the same pipeline
-- [ ] Category-specific Worker Agents beyond `content` (data, code) — the
-      Pipeline Agent already flags accepted jobs outside this scope for
-      manual fulfillment, so widening Worker Agent's scope is what actually
-      grows the automated volume
+- [ ] Freelancer.com adapter once/if API access is approved (Remotive +
+      Arbeitnow + RemoteOK + WeWorkRemotely already give no-auth volume
+      that doesn't depend on it)
+- [ ] Worker Agent scope beyond `content`/`data` (e.g. `code`) — same
+      pattern as adding `data` was: a new prompt in `SYSTEM_PROMPTS` plus
+      adding the category to `SUPPORTED_CATEGORIES`
 - [ ] Client-facing status page per job
 - [ ] Provider webhooks to auto-confirm payment instead of manual "mark paid"
 - [ ] Inbox Agent support for marketplace messaging (Upwork/Freelancer),
       not just email — currently only email-threaded sources auto-detect replies
+- [ ] Capture testimonial replies automatically (currently the request goes
+      out; the reply is read by the owner directly, not parsed/stored)
 - [ ] Gradually relax the marketplace approval gate per category once
       accuracy is proven — never by removing the gate itself, only by
       shrinking what needs it

@@ -2,6 +2,7 @@ import { prisma } from "../db/client.js";
 import { pickProvider, createInvoiceLink } from "../services/payments.js";
 import { notifications } from "../services/notify.js";
 import { recordIncident, registerRetryHandler } from "../services/incidents.js";
+import { requestTestimonial } from "./testimonialAgent.js";
 
 const REMINDER_INTERVAL_DAYS = 3;
 const DUE_IN_DAYS = 7;
@@ -32,10 +33,20 @@ export async function invoiceJob(jobId, { amount, currency = "USD", clientEmail 
 
     const dueDate = new Date(Date.now() + DUE_IN_DAYS * 24 * 60 * 60 * 1000);
 
+    const resolvedClientEmail = clientEmail || job.applyEmail || null;
     const payment = await prisma.payment.upsert({
       where: { jobId },
-      create: { jobId, provider, amount: finalAmount, currency, invoiceUrl, dueDate, status: "INVOICE_SENT" },
-      update: { provider, amount: finalAmount, currency, invoiceUrl, dueDate, status: "INVOICE_SENT" },
+      create: {
+        jobId,
+        provider,
+        amount: finalAmount,
+        currency,
+        invoiceUrl,
+        dueDate,
+        status: "INVOICE_SENT",
+        clientEmail: resolvedClientEmail,
+      },
+      update: { provider, amount: finalAmount, currency, invoiceUrl, dueDate, status: "INVOICE_SENT", clientEmail: resolvedClientEmail },
     });
 
     await prisma.job.update({ where: { id: jobId }, data: { status: "AWAITING_PAYMENT" } });
@@ -64,6 +75,11 @@ export async function markPaid(jobId) {
       await prisma.client.update({ where: { id: job.clientId }, data: { isRecurring: true } });
     }
   }
+
+  // Fire-and-forget: a testimonial request failing must never break the
+  // payment confirmation itself. requestTestimonial records its own
+  // Incident and is retry-registered, so a transient failure heals itself.
+  requestTestimonial(jobId).catch((err) => console.error(`[payment] testimonial request failed for ${jobId}:`, err.message));
 }
 
 /**

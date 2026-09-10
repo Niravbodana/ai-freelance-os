@@ -2,8 +2,21 @@ import { prisma } from "../db/client.js";
 import { fetchNewEmails } from "../services/inbox.js";
 import { askClaude, MODELS } from "../services/claude.js";
 import { recordProposalOutcome } from "./proposalAgent.js";
-import { notifyOwner } from "../services/notify.js";
+import { notifyOwner, sendProposalEmail } from "../services/notify.js";
 import { recordIncident } from "../services/incidents.js";
+
+// A counter-offer at or above this fraction of our original ask gets
+// auto-accepted and confirmed with the client immediately — closing a deal
+// fast is worth more than the last few percent of rate, and it keeps the
+// loop unattended for the common case (client wants a small discount).
+// Anything below this band still needs a real decision from the owner.
+const ACCEPTABLE_COUNTER_BAND = 0.2; // accept down to 20% below our ask
+
+function extractRate(str) {
+  if (!str) return null;
+  const match = String(str).match(/[\d.]+/);
+  return match ? parseFloat(match[0]) : null;
+}
 
 const CLASSIFY_PROMPT = `You are triaging a reply to a freelance job application email.
 Reply with exactly two lines:
@@ -61,14 +74,46 @@ export async function processInbox() {
           // Informational only — no action needed, this is exactly what
           // "self-healing" should look like for a normal business outcome.
         } else if (intent === "COUNTER_OFFER") {
-          await prisma.proposal.update({
-            where: { jobId: job.id },
-            data: { outcome: "COUNTER_OFFER", outcomeAt: new Date(), negotiationLog: `Client countered: ${detail}` },
-          });
-          await notifyOwner(
-            `Counter-offer: ${job.title}`,
-            `Client countered at "${detail}" (our proposed rate was ${job.proposal?.proposedRate ?? "n/a"}). Needs your decision — open the dashboard to accept, counter again, or decline.`
-          );
+          const ourRate = extractRate(job.proposal?.proposedRate);
+          const counteredRate = extractRate(detail);
+          const withinBand =
+            ourRate != null && counteredRate != null && counteredRate >= ourRate * (1 - ACCEPTABLE_COUNTER_BAND);
+
+          if (withinBand) {
+            // Close the deal now rather than waiting on a human for a
+            // counter that's clearly acceptable — speed of close is worth
+            // more here than squeezing the last bit of rate.
+            await prisma.proposal.update({
+              where: { jobId: job.id },
+              data: {
+                proposedRate: detail,
+                outcome: "ACCEPTED",
+                outcomeAt: new Date(),
+                negotiationLog: `Auto-accepted client counter of "${detail}" — within ${ACCEPTABLE_COUNTER_BAND * 100}% of our original ask (${job.proposal?.proposedRate}).`,
+              },
+            });
+            await prisma.job.update({ where: { id: job.id }, data: { status: "ACCEPTED" } });
+            if (job.applyEmail) {
+              await sendProposalEmail({
+                to: job.applyEmail,
+                subject: `Re: ${job.title}`,
+                text: `Thanks for the reply — ${detail} works for me. Happy to get started right away.`,
+              });
+            }
+            await notifyOwner(
+              `Auto-accepted counter-offer: ${job.title}`,
+              `Client countered at "${detail}" (our ask was ${job.proposal?.proposedRate}) — within the acceptable band, so it was auto-accepted and confirmed with the client. Worker/Delivery/Invoice will run automatically.`
+            );
+          } else {
+            await prisma.proposal.update({
+              where: { jobId: job.id },
+              data: { outcome: "COUNTER_OFFER", outcomeAt: new Date(), negotiationLog: `Client countered: ${detail}` },
+            });
+            await notifyOwner(
+              `Counter-offer: ${job.title}`,
+              `Client countered at "${detail}" (our proposed rate was ${job.proposal?.proposedRate ?? "n/a"}) — outside the auto-accept band. Needs your decision — open the dashboard to accept, counter again, or decline.`
+            );
+          }
         } else {
           await notifyOwner(
             `Client question: ${job.title}`,
