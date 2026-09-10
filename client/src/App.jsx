@@ -4,6 +4,7 @@ import JobCard from "./components/JobCard.jsx";
 import NewJobForm from "./components/NewJobForm.jsx";
 import StatsBar from "./components/StatsBar.jsx";
 import IncidentsPanel from "./components/IncidentsPanel.jsx";
+import PerformancePanel from "./components/PerformancePanel.jsx";
 
 const AUTO_REFRESH_MS = 30_000;
 
@@ -47,15 +48,20 @@ export default function App() {
       <p style={{ color: "#555" }}>
         Hunter finds + feasibility-checks jobs → Proposal Agent drafts and (where the platform allows)
         auto-sends pitches → Worker Agent produces the deliverable → Delivery Agent QA-checks it →
-        Payment Agent invoices and chases payment. Failures retry themselves automatically — you're
-        only needed where the "Needs you" tiles below say so.
+        Payment Agent invoices and chases payment. The Inbox Agent reads client replies and detects
+        accept/reject automatically, and the Pipeline Agent then runs Worker → Delivery → Invoice
+        unattended. Failures retry themselves automatically — you're only needed where the
+        "Needs you" tiles below say so.
       </p>
 
       <StatsBar stats={stats} />
       <IncidentsPanel incidents={incidents} onChanged={refresh} />
+      <PerformancePanel data={stats?.performanceByCategory} />
 
       <div style={{ display: "flex", gap: 8, marginBottom: 24 }}>
         <button onClick={() => api.runHunter().then(refresh)}>Run Hunter Agent now</button>
+        <button onClick={() => api.runInbox().then(refresh)}>Check inbox now</button>
+        <button onClick={() => api.runPipeline().then(refresh)}>Advance pipeline now</button>
         <button onClick={refresh}>Refresh</button>
       </div>
 

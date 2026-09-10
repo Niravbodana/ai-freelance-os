@@ -59,10 +59,23 @@ export default function JobCard({ job, onChanged }) {
       )}
 
       {job.status === "PROPOSAL_SENT" && (
-        <p style={{ fontSize: 13 }}>
-          {job.proposal?.autoSent ? "Auto-sent (own outreach channel)." : "Sent — waiting on client reply."}
-          {" "}Flip to ACCEPTED manually once they reply.
-        </p>
+        <div>
+          <p style={{ fontSize: 13 }}>
+            {job.proposal?.autoSent ? "Auto-sent." : "Sent — waiting on client reply."}
+            {job.applyEmail
+              ? " The Inbox Agent will detect their reply automatically."
+              : " This source has no email thread to auto-detect — use the buttons below once you hear back."}
+          </p>
+          {job.proposal?.negotiationLog?.startsWith("Client countered") && (
+            <p style={{ fontSize: 13, color: "#a60" }}>{job.proposal.negotiationLog}</p>
+          )}
+          <button disabled={busy} onClick={() => run(() => api.markAccepted(job.id))}>
+            Mark accepted
+          </button>{" "}
+          <button disabled={busy} onClick={() => run(() => api.markRejected(job.id))}>
+            Mark rejected
+          </button>
+        </div>
       )}
 
       {(job.status === "ACCEPTED" || job.status === "IN_PROGRESS") && (

@@ -1,18 +1,23 @@
 import cron from "node-cron";
 import { runHunterAgent } from "./agents/hunterAgent.js";
 import { sweepOverduePayments } from "./agents/paymentAgent.js";
+import { processInbox } from "./agents/inboxAgent.js";
+import { advancePipeline } from "./agents/pipelineAgent.js";
 import { retrySweep, recordAndEscalateNow } from "./services/incidents.js";
 
 /**
  * The 24x7 loop.
  * - Hunter Agent (discover → feasibility-gate → draft/auto-send) every 15 min.
+ * - Inbox Agent (read client replies, detect accept/reject/counter) every 10 min.
+ * - Pipeline Agent (ACCEPTED → Worker → Delivery → Invoice, unattended) every 10 min.
  * - Payment sweep (chase overdue invoices) every 6 hours.
  * - Incident retry sweep every 5 min — the self-healing loop that retries
  *   failed agent runs automatically and only pulls the owner in once a
  *   failure won't resolve on its own.
- * Worker/Delivery/invoicing stay a chain triggered from the dashboard once a
- * job is ACCEPTED — a client saying "yes" is the one event we can't source
- * automatically without their reply, everything after it can run unattended.
+ * A client saying "yes" is the one event that used to need a human to
+ * notice — the Inbox Agent now sources that automatically wherever we
+ * emailed the proposal (see inboxAgent.js for where that doesn't apply,
+ * e.g. Upwork, which still needs the dashboard's manual accept/reject).
  */
 export function startScheduler() {
   cron.schedule("*/15 * * * *", async () => {
@@ -21,6 +26,23 @@ export function startScheduler() {
     } catch (err) {
       console.error("[scheduler] hunter agent run failed:", err);
       await recordAndEscalateNow("HUNTER", err);
+    }
+  });
+
+  cron.schedule("*/10 * * * *", async () => {
+    try {
+      await processInbox();
+    } catch (err) {
+      console.error("[scheduler] inbox agent run failed:", err);
+    }
+  });
+
+  cron.schedule("*/10 * * * *", async () => {
+    try {
+      await advancePipeline();
+    } catch (err) {
+      console.error("[scheduler] pipeline sweep failed:", err);
+      await recordAndEscalateNow("PIPELINE", err);
     }
   });
 
@@ -41,5 +63,7 @@ export function startScheduler() {
     }
   });
 
-  console.log("[scheduler] Hunter every 15 min, payment sweep every 6h, incident retry sweep every 5 min");
+  console.log(
+    "[scheduler] Hunter/Inbox/Pipeline every 10-15 min, payment sweep every 6h, incident retry sweep every 5 min"
+  );
 }

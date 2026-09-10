@@ -1,6 +1,7 @@
 import { Router } from "express";
 import { prisma } from "../db/client.js";
 import { getRateLimitSnapshot } from "../services/claude.js";
+import { getPerformanceByCategory } from "../services/performance.js";
 
 export const statsRouter = Router();
 
@@ -44,6 +45,8 @@ statsRouter.get("/", async (_req, res) => {
     prisma.incident.count({ where: { status: "OPEN" } }),
   ]);
 
+  const performanceByCategory = await getPerformanceByCategory();
+
   const byStatus = Object.fromEntries(statusCounts.map((s) => [s.status, s._count.status]));
   const costUsed = usageThisMonth._sum.costUsd || 0;
 
@@ -70,5 +73,6 @@ statsRouter.get("/", async (_req, res) => {
       escalated: escalatedIncidents,
       autoRetrying: openIncidents,
     },
+    performanceByCategory,
   });
 });

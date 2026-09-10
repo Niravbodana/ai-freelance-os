@@ -76,9 +76,38 @@ applications, not literally anywhere.
    scheduled sweep (every 6h) chases overdue invoices and notifies the
    owner. Nothing marks a job `PAID` automatically — that's a manual
    confirm or a provider webhook, never assumed.
+7. **Inbox Agent** (`inboxAgent.js`) — polls the configured mailbox every
+   10 min (`services/inbox.js`, IMAP) for replies to emailed proposals,
+   matches each one to its job by sender address, and classifies intent
+   with Claude: `ACCEPTED` moves the job to `ACCEPTED` (the Pipeline Agent
+   takes it from there); `REJECTED` closes it; `COUNTER_OFFER` notifies the
+   owner with the countered rate — that's a real decision, not something
+   auto-accepted; `QUESTION`/anything unclear notifies the owner with the
+   message and an AI-drafted reply to review before sending. Only works for
+   sources we emailed a proposal to (`applyEmail` set) — Upwork and other
+   marketplace messaging still need the dashboard's manual "Mark
+   accepted/rejected" buttons.
+8. **Pipeline Agent** (`pipelineAgent.js`) — the self-driving state
+   machine: every 10 min it finds `ACCEPTED` jobs with no deliverable and
+   runs the Worker Agent, `IN_PROGRESS` jobs with an un-QA'd deliverable
+   and runs the Delivery Agent, and `DELIVERED` jobs with no payment and
+   invoices them. This is what makes "client says yes" the last moment a
+   human needs to be involved — everything after it runs unattended on its
+   own schedule, independent of whatever triggered the `ACCEPTED` status.
 
 Clients who pay across 2+ completed jobs are automatically flagged
 `isRecurring` on their client record, for prioritizing repeat relationships.
+
+## Performance feedback loop
+
+Every proposal's real outcome (`ACCEPTED`/`REJECTED`, from the Inbox Agent
+or a manual mark) is recorded on the `Proposal` row. Before drafting a new
+proposal, `services/performance.js` pulls the win rate and average accepted
+vs. rejected rate for that job's category (once there are ≥3 outcomes to
+trust) and feeds it straight into the Proposal Agent's prompt — so the rate
+and pitch it writes next time are calibrated on what's actually been
+winning, not guessed cold every time. The dashboard's performance table
+shows the same numbers, so this isn't a black box.
 
 ## Command centre dashboard
 
@@ -159,9 +188,14 @@ to the console.
 - [ ] Guru.com API adapter once partner credentials are granted
 - [ ] More RemoteOK/WeWorkRemotely-style public-feed job boards
 - [ ] Outreach lead capture (cold email/LinkedIn) feeding the same pipeline
-- [ ] Category-specific Worker Agents beyond `content` (data, code)
+- [ ] Category-specific Worker Agents beyond `content` (data, code) — the
+      Pipeline Agent already flags accepted jobs outside this scope for
+      manual fulfillment, so widening Worker Agent's scope is what actually
+      grows the automated volume
 - [ ] Client-facing status page per job
 - [ ] Provider webhooks to auto-confirm payment instead of manual "mark paid"
+- [ ] Inbox Agent support for marketplace messaging (Upwork/Freelancer),
+      not just email — currently only email-threaded sources auto-detect replies
 - [ ] Gradually relax the marketplace approval gate per category once
       accuracy is proven — never by removing the gate itself, only by
       shrinking what needs it

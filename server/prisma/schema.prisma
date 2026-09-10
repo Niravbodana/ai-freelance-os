@@ -79,6 +79,10 @@ model Proposal {
   approvedAt     DateTime?
   sentAt         DateTime?
   negotiationLog String?
+  // Performance tracking: what actually happened to this proposal, fed
+  // back into future rate/pitch decisions — see services/performance.js.
+  outcome        String?   // ACCEPTED | REJECTED | COUNTER_OFFER | null (no reply yet)
+  outcomeAt      DateTime?
   createdAt      DateTime  @default(now())
 }
 
@@ -128,6 +132,8 @@ enum AgentType {
   WORKER
   DELIVERY
   PAYMENT
+  INBOX
+  PIPELINE
 }
 
 model AgentRun {
@@ -170,4 +176,12 @@ model Incident {
   lastAttemptAt DateTime?
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
+}
+
+// Tracks IMAP read position per mailbox so the Inbox Agent only ever
+// processes each email once, even across restarts.
+model InboxState {
+  id      String @id @default(cuid())
+  mailbox String @unique
+  lastUid Int    @default(0)
 }

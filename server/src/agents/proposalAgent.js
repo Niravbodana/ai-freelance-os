@@ -3,6 +3,7 @@ import { askClaude } from "../services/claude.js";
 import { notifications, sendProposalEmail } from "../services/notify.js";
 import { placeFreelancerBid } from "./sources/freelancerCom.js";
 import { recordIncident, registerRetryHandler } from "../services/incidents.js";
+import { getPerformanceSummary } from "../services/performance.js";
 
 const SYSTEM_PROMPT = `You are a freelance proposal writer and rate negotiator. Given a job post,
 write a short, specific, non-generic proposal (120-180 words) that:
@@ -43,9 +44,12 @@ export async function draftProposal(jobId) {
   });
 
   try {
+    const performanceNote = await getPerformanceSummary(job.category);
+
     const raw = await askClaude(
       SYSTEM_PROMPT,
-      `Job title: ${job.title}\nCategory: ${job.category}\nClient's stated budget: ${job.budget ?? "not specified"}\n\nJob description:\n${job.description}`,
+      `Job title: ${job.title}\nCategory: ${job.category}\nClient's stated budget: ${job.budget ?? "not specified"}\n\nJob description:\n${job.description}` +
+        (performanceNote ? `\n\n${performanceNote}` : ""),
       1024,
       { agent: "PROPOSAL", jobId }
     );
@@ -126,4 +130,19 @@ export async function approveProposal(jobId, editedText) {
   });
   await prisma.job.update({ where: { id: jobId }, data: { status: "PROPOSAL_SENT" } });
   return proposal;
+}
+
+/**
+ * Records what actually happened to a sent proposal — called by the Inbox
+ * Agent (auto-detected from a client reply) or manually from the dashboard
+ * for sources without email threading (Upwork, etc). This is the data the
+ * performance feedback loop above learns from.
+ */
+export async function recordProposalOutcome(jobId, outcome) {
+  await prisma.proposal.update({ where: { jobId }, data: { outcome, outcomeAt: new Date() } });
+  if (outcome === "ACCEPTED") {
+    await prisma.job.update({ where: { id: jobId }, data: { status: "ACCEPTED" } });
+  } else if (outcome === "REJECTED") {
+    await prisma.job.update({ where: { id: jobId }, data: { status: "CLOSED" } });
+  }
 }

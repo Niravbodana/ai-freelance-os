@@ -1,7 +1,7 @@
 import { Router } from "express";
 import { prisma } from "../db/client.js";
 import { checkFeasibility } from "../agents/feasibilityAgent.js";
-import { draftProposal, approveProposal } from "../agents/proposalAgent.js";
+import { draftProposal, approveProposal, recordProposalOutcome } from "../agents/proposalAgent.js";
 import { runWorkerAgent } from "../agents/workerAgent.js";
 import { runDeliveryAgent } from "../agents/deliveryAgent.js";
 import { invoiceJob, markPaid } from "../agents/paymentAgent.js";
@@ -50,6 +50,26 @@ jobsRouter.post("/:id/approve-proposal", async (req, res) => {
   try {
     const proposal = await approveProposal(req.params.id, req.body?.editedText);
     res.json(proposal);
+  } catch (err) {
+    res.status(500).json({ error: String(err) });
+  }
+});
+
+// Fallback for sources the Inbox Agent can't read replies for (Upwork,
+// Freelancer messaging, etc.) — same outcome recording, triggered by hand.
+jobsRouter.post("/:id/mark-accepted", async (req, res) => {
+  try {
+    await recordProposalOutcome(req.params.id, "ACCEPTED");
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(500).json({ error: String(err) });
+  }
+});
+
+jobsRouter.post("/:id/mark-rejected", async (req, res) => {
+  try {
+    await recordProposalOutcome(req.params.id, "REJECTED");
+    res.json({ ok: true });
   } catch (err) {
     res.status(500).json({ error: String(err) });
   }
