@@ -373,8 +373,42 @@ export default function OfficeView() {
         </div>
       </div>
 
+      <div className="reception-row">
+        <div className="reception-desk">
+          <div className="reception-logo">AI FREELANCE OS</div>
+          <Character meta={{ shirt: "#0891b2", skin: "#f1c27d", hair: "#2b1b0e", style: "long" }} status="done" pose="sitting" />
+        </div>
+
+        <div className="meeting-room">
+          <div className="room-label">Meeting Room</div>
+          <svg viewBox="0 0 120 70" className="meeting-svg">
+            <rect x="4" y="6" width="46" height="30" rx="2" fill="#ffffff" stroke="#cbd5e1" strokeWidth="1.5" />
+            <rect x="9" y="10" width="14" height="9" rx="1" fill="#93c5fd" />
+            <rect x="9" y="21" width="30" height="3" rx="1" fill="#e2e8f0" />
+            <rect x="9" y="27" width="20" height="3" rx="1" fill="#e2e8f0" />
+            <ellipse cx="80" cy="46" rx="26" ry="13" fill="#c8935f" opacity="0.9" />
+            <rect x="58" y="52" width="6" height="14" rx="2" fill="#334155" />
+            <rect x="96" y="52" width="6" height="14" rx="2" fill="#334155" />
+            <rect x="66" y="56" width="6" height="12" rx="2" fill="#334155" />
+            <rect x="88" y="56" width="6" height="12" rx="2" fill="#334155" />
+          </svg>
+        </div>
+
+        <div className="lounge">
+          <div className="room-label">Lounge</div>
+          <svg viewBox="0 0 120 60" className="lounge-svg">
+            <path d="M6,54 L6,30 Q6,22 14,22 L96,22 Q104,22 104,30 L104,54 Z" fill="#2563eb" />
+            <rect x="2" y="46" width="106" height="12" rx="4" fill="#1e40af" />
+            <rect x="6" y="18" width="16" height="16" rx="4" fill="#3b82f6" />
+            <circle cx="70" cy="50" r="10" fill="#c8935f" />
+            <circle cx="118" cy="40" r="9" fill="#38bdf8" opacity="0.6" />
+            <rect x="112" y="40" width="12" height="16" rx="2" fill="#f8fafc" stroke="#94a3b8" />
+          </svg>
+        </div>
+      </div>
+
       <div className={`ceo-office${ceoAlert ? " alert" : ""}`}>
-        <div className="ceo-plaque">CEO Office</div>
+        <div className="ceo-plaque">Founder</div>
         <div className="ceo-plant" />
         <Character meta={{ shirt: "#1e293b", skin: "#e0ac69", hair: "#111111", style: "short" }} status={ceoAlert ? "error" : "done"} isCeo />
         <div className="ceo-desk-top" />
