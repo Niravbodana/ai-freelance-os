@@ -3,7 +3,15 @@ import nodemailer from "nodemailer";
 import { ImapFlow } from "imapflow";
 import Stripe from "stripe";
 import Razorpay from "razorpay";
-import { SETTINGS_MANIFEST, getConfig, setConfig, clearConfig, configSource } from "../services/config.js";
+import {
+  SETTINGS_MANIFEST,
+  getConfig,
+  setConfig,
+  clearConfig,
+  configSource,
+  exportSettingsBackup,
+  importSettingsBackup,
+} from "../services/config.js";
 import { asyncHandler } from "../utils/asyncHandler.js";
 
 export const adminRouter = Router();
@@ -53,6 +61,25 @@ adminRouter.post(
       saved.push(key);
     }
     res.json({ ok: true, saved });
+  })
+);
+
+// Backup: exports encrypted ciphertext, safe to store anywhere (useless
+// without ENCRYPTION_KEY). Restoring only works against the SAME key that
+// created it — see exportSettingsBackup's doc comment for why that key
+// itself has no backup path here.
+adminRouter.get(
+  "/settings/backup",
+  asyncHandler(async (_req, res) => {
+    res.json(await exportSettingsBackup());
+  })
+);
+
+adminRouter.post(
+  "/settings/restore",
+  asyncHandler(async (req, res) => {
+    const result = await importSettingsBackup(req.body);
+    res.json(result);
   })
 );
 

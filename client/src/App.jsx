@@ -105,6 +105,9 @@ export default function App() {
             <button className="btn" onClick={refresh}>
               Refresh
             </button>
+            <a className="btn" href="/api/payments/export.csv" style={{ textDecoration: "none" }}>
+              Export payments CSV
+            </a>
           </div>
         </>
       )}

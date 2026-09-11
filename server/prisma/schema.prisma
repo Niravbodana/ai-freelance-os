@@ -57,6 +57,9 @@ model Job {
   applyEmail   String?
   externalMeta Json?
   contractSentAt DateTime?
+  // A private, unguessable link clients use to check their own project's
+  // status without needing a dashboard login — see routes/status.js.
+  statusToken  String     @unique @default(uuid())
   client       Client?    @relation(fields: [clientId], references: [id])
   clientId     String?
   createdAt    DateTime   @default(now())

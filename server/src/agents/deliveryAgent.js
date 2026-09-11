@@ -1,7 +1,8 @@
 import { prisma } from "../db/client.js";
 import { askClaude, MODELS } from "../services/claude.js";
-import { notifications } from "../services/notify.js";
+import { notifications, sendProposalEmail } from "../services/notify.js";
 import { recordIncident, registerRetryHandler } from "../services/incidents.js";
+import { getConfig } from "../services/config.js";
 
 const QA_SYSTEM_PROMPT = `You are a strict QA reviewer for freelance deliverables.
 Compare the deliverable against the client brief. Reply with exactly one word,
@@ -56,6 +57,18 @@ export async function runDeliveryAgent(jobId) {
 
     if (!qaPassed) {
       await notifications.deliveryQaFailed(job, verdict);
+    } else if (job.applyEmail) {
+      // The actual point of "delivery" — without this, a client gets
+      // invoiced for work they were never shown. Found via a code read
+      // while building the client status page: QA passing only ever
+      // updated internal status, nothing sent the finished work out.
+      const appUrl = getConfig("APP_URL");
+      const statusLine = appUrl ? `\n\nYou can check this project's status anytime at: ${appUrl}/status/${job.statusToken}` : "";
+      await sendProposalEmail({
+        to: job.applyEmail,
+        subject: `Completed: ${job.title}`,
+        text: `Hi,\n\nYour project is complete — please find it below. An invoice will follow shortly.\n\n---\n\n${job.deliverable.content}${statusLine}`,
+      });
     }
 
     await prisma.agentRun.update({

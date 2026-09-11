@@ -11,6 +11,12 @@ import { encrypt, decrypt } from "./crypto.js";
  * working exactly as before; Admin Settings is additive, not required.
  */
 export const SETTINGS_MANIFEST = [
+  {
+    key: "APP_URL",
+    group: "General",
+    label: "Public app URL (e.g. https://your-app.up.railway.app)",
+    secret: false,
+  },
   { key: "ANTHROPIC_API_KEY", group: "Claude API", label: "Anthropic API Key", secret: true, testable: true },
   { key: "CLAUDE_MONTHLY_BUDGET_USD", group: "Claude API", label: "Monthly budget (USD, optional)", secret: false },
 
@@ -83,4 +89,46 @@ export async function setConfig(key, value) {
 export async function clearConfig(key) {
   await prisma.setting.deleteMany({ where: { key } });
   delete cache[key];
+}
+
+/**
+ * Backup/restore for the encrypted Setting table — protects against
+ * losing every credential to a DB wipe or a bad migration. Exports the
+ * ciphertext as-is (safe to store anywhere: it's useless without
+ * ENCRYPTION_KEY), so restoring only works with the *same* ENCRYPTION_KEY
+ * that created it — that key itself has no backup mechanism here since it
+ * can't live in the thing it protects; losing it means every credential
+ * must be re-entered from scratch. Document this clearly rather than
+ * pretend a full solution exists.
+ */
+export async function exportSettingsBackup() {
+  const rows = await prisma.setting.findMany();
+  return { exportedAt: new Date().toISOString(), settings: rows.map((r) => ({ key: r.key, value: r.value })) };
+}
+
+export async function importSettingsBackup(backup) {
+  const rows = backup?.settings;
+  if (!Array.isArray(rows)) throw new Error("Backup must be { settings: [{ key, value }, ...] }");
+
+  let imported = 0;
+  let failed = 0;
+  for (const row of rows) {
+    if (!row?.key || !row?.value || !SETTINGS_KEYS.has(row.key)) {
+      failed += 1;
+      continue;
+    }
+    try {
+      decrypt(row.value); // verify it decrypts with the CURRENT key before trusting it
+      await prisma.setting.upsert({
+        where: { key: row.key },
+        create: { key: row.key, value: row.value },
+        update: { value: row.value },
+      });
+      cache[row.key] = decrypt(row.value);
+      imported += 1;
+    } catch {
+      failed += 1; // wrong ENCRYPTION_KEY for this backup, or corrupted entry
+    }
+  }
+  return { imported, failed };
 }

@@ -76,6 +76,8 @@ export default function AdminSettings() {
         fallback).
       </p>
 
+      <BackupPanel onRestored={refresh} />
+
       {Object.entries(groups).map(([groupName, items]) => (
         <div key={groupName} className="panel" style={{ marginBottom: 14 }}>
           <div className="settings-group-title">{groupName}</div>
@@ -94,6 +96,67 @@ export default function AdminSettings() {
           ))}
         </div>
       ))}
+    </div>
+  );
+}
+
+function BackupPanel({ onRestored }) {
+  const [busy, setBusy] = useState(false);
+  const [message, setMessage] = useState(null);
+
+  async function downloadBackup() {
+    setBusy(true);
+    try {
+      const backup = await api.getSettingsBackup();
+      const blob = new Blob([JSON.stringify(backup, null, 2)], { type: "application/json" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `ai-freelance-os-settings-backup-${new Date().toISOString().slice(0, 10)}.json`;
+      a.click();
+      URL.revokeObjectURL(url);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function restoreBackup(e) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setBusy(true);
+    setMessage(null);
+    try {
+      const text = await file.text();
+      const result = await api.restoreSettingsBackup(JSON.parse(text));
+      setMessage(`Restored ${result.imported} setting(s)${result.failed ? `, ${result.failed} failed (wrong encryption key or corrupted entry)` : ""}.`);
+      onRestored?.();
+    } catch (err) {
+      setMessage(String(err));
+    } finally {
+      setBusy(false);
+      e.target.value = "";
+    }
+  }
+
+  return (
+    <div className="panel" style={{ marginBottom: 14 }}>
+      <div className="settings-group-title" style={{ marginTop: 0 }}>
+        Backup &amp; Restore
+      </div>
+      <p style={{ fontSize: 12, color: "var(--text-dim)" }}>
+        Exports every credential's encrypted ciphertext (safe to store anywhere — useless without the
+        server's ENCRYPTION_KEY). Restoring only works against the same ENCRYPTION_KEY that created the
+        backup; that key itself has no backup here since it can't live inside the thing it protects —
+        losing it means re-entering every credential from scratch.
+      </p>
+      <button className="btn" disabled={busy} onClick={downloadBackup}>
+        Download backup
+      </button>{" "}
+      <label className="btn" style={{ display: "inline-block", cursor: "pointer" }}>
+        Restore from file
+        <input type="file" accept="application/json" onChange={restoreBackup} disabled={busy} style={{ display: "none" }} />
+      </label>
+      {message && <p style={{ fontSize: 12, color: "var(--text-dim)", marginTop: 8 }}>{message}</p>}
     </div>
   );
 }

@@ -7,7 +7,8 @@
     "dev": "node --watch src/index.js",
     "start": "prisma migrate deploy && node src/index.js",
     "prisma:generate": "prisma generate",
-    "prisma:migrate": "prisma migrate dev"
+    "prisma:migrate": "prisma migrate dev",
+    "test": "node --env-file=.env --test \"test/**/*.test.js\""
   },
   "dependencies": {
     "@prisma/client": "^5.20.0",

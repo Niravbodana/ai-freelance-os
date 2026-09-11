@@ -35,6 +35,19 @@ export default function JobCard({ job, onChanged }) {
       <div className="job-meta">
         {job.category} · {job.source} · {job.budget || "no budget listed"}
         {job.client?.isRecurring && <span style={{ color: "var(--accent-green)", marginLeft: 8 }}>★ recurring client</span>}
+        {job.statusToken && (
+          <>
+            {" · "}
+            <a
+              href={`/status/${job.statusToken}`}
+              target="_blank"
+              rel="noreferrer"
+              style={{ color: "var(--accent)" }}
+            >
+              client status link
+            </a>
+          </>
+        )}
       </div>
 
       {job.status === "NOT_FEASIBLE" && (

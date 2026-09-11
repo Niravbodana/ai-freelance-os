@@ -10,6 +10,8 @@ import { statsRouter } from "./routes/stats.js";
 import { incidentsRouter } from "./routes/incidents.js";
 import { adminRouter } from "./routes/admin.js";
 import { leadsRouter } from "./routes/leads.js";
+import { paymentsRouter } from "./routes/payments.js";
+import { statusRouter } from "./routes/status.js";
 import { startScheduler } from "./scheduler.js";
 import { recordAndEscalateNow } from "./services/incidents.js";
 import { loadConfigCache } from "./services/config.js";
@@ -39,7 +41,9 @@ const app = express();
 // silent about it.
 if (process.env.DASHBOARD_USER && process.env.DASHBOARD_PASSWORD) {
   app.use((req, res, next) => {
-    if (req.path === "/health") return next(); // let uptime checks through unauthenticated
+    // /health for uptime checks, /status/:token for the client-facing
+    // status page — both are deliberately public (see routes/status.js).
+    if (req.path === "/health" || req.path.startsWith("/status/")) return next();
     const header = req.headers.authorization || "";
     const [scheme, encoded] = header.split(" ");
     if (scheme === "Basic" && encoded) {
@@ -65,6 +69,8 @@ app.use("/api/stats", statsRouter);
 app.use("/api/incidents", incidentsRouter);
 app.use("/api/admin", adminRouter);
 app.use("/api/leads", leadsRouter);
+app.use("/api/payments", paymentsRouter);
+app.use("/status", statusRouter);
 
 // Serve the built dashboard from the same origin/process as the API. This
 // is what makes the basic-auth login above "just work" via the browser's

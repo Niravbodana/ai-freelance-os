@@ -75,8 +75,13 @@ applications, not literally anywhere.
    silently widened.
 5. **Delivery Agent** (`deliveryAgent.js`) — QA pass comparing the
    deliverable against the original brief before marking `DELIVERED`. A
-   failed check keeps the job `IN_PROGRESS` instead of shipping bad work,
-   and notifies the owner.
+   failed check keeps the job `IN_PROGRESS` instead of shipping bad work
+   (see the revision loop, below), and on a pass **emails the finished
+   work to the client** along with their status-page link. This was a
+   real gap caught by re-reading the code while building the status page:
+   QA passing only ever updated internal status — nothing had ever
+   actually sent the client their work, so the invoice that follows would
+   have asked them to pay for something they'd never seen.
 6. **Payment Agent** (`paymentAgent.js`) — invoices a delivered job via
    Stripe or Razorpay (picked by currency), tracks due date, and a
    scheduled sweep (every 6h) chases overdue invoices and notifies the
@@ -190,6 +195,21 @@ the top of Command Centre) gives a one-glance view of the whole operation:
 - **Live Agent Activity** — a terminal-style feed of every agent run
   (Hunter, Feasibility, Proposal, Worker, Delivery, Payment, Inbox,
   Pipeline) as it happens, polling independently every 8s.
+- **Export payments CSV** — every payment row (job, provider, amount,
+  status, dates) as a plain CSV, for accounting/tax filing without
+  querying the database by hand.
+
+## Client status page
+
+Every job gets a private, unguessable link (`Job.statusToken`,
+`/status/:token`) a client can open without any login — deliberately
+excluded from the dashboard's basic auth (see `index.js`) since it's the
+one page meant for someone other than the owner. Shows a client-friendly
+status label (never the internal enum or anything like feasibility notes
+or negotiation logs), the finished work once delivered, and the invoice
+link once invoiced. Included automatically in the Delivery Agent's
+"work is done" email; also shown on each job's card in the dashboard for
+manually sharing.
 
 ## Admin Settings — every credential, in one place
 
@@ -211,6 +231,15 @@ one exception is the four bootstrap secrets (`DATABASE_URL`,
 `DASHBOARD_USER`, `DASHBOARD_PASSWORD`, `ENCRYPTION_KEY`) which must stay
 env vars — the app needs them before it can even read the database, or as
 the key that unlocks every encrypted value stored there.
+
+**Backup & Restore** (top of the Admin Settings tab): downloads every
+credential's encrypted ciphertext as JSON — safe to store anywhere,
+useless without `ENCRYPTION_KEY` — and can restore from that file later.
+This protects against losing every credential to a database wipe or a bad
+migration. It does **not** protect against losing `ENCRYPTION_KEY` itself
+— that key can't have a backup mechanism inside the thing it protects;
+losing it means every credential must be re-entered from scratch. Treat
+it like you'd treat a master password.
 
 ## Cost optimization
 
@@ -292,6 +321,18 @@ Stripe/Razorpay keys and SMTP are optional to get started — without them,
 invoices are tracked as `MANUAL` (no auto link) and notifications just log
 to the console.
 
+## Testing
+
+`cd server && npm test` runs a regression suite (`node:test`, no extra
+dependency) against a real Postgres via `DATABASE_URL` — use a scratch/dev
+database, not production, since it creates and deletes real rows.
+`test/pipeline.test.js` covers the exact bug class the revision loop fixed
+(see "The revision loop" above): it asserts a `needsRevision` job is
+routed to Worker Agent, never re-checked by Delivery Agent on stale
+content, found via manual live testing rather than caught by a test
+originally — this suite exists so that specific regression can't recur
+silently.
+
 ## Deploying (Railway)
 
 This repo runs as one service: the built dashboard is served by the same
@@ -344,7 +385,6 @@ they're unset; that's a real gap, not a convenience default.
 - [ ] Worker Agent scope beyond `content`/`data` (e.g. `code`) — same
       pattern as adding `data` was: a new prompt in `SYSTEM_PROMPTS` plus
       adding the category to `SUPPORTED_CATEGORIES`
-- [ ] Client-facing status page per job
 - [ ] Provider webhooks to auto-confirm payment instead of manual "mark paid"
 - [ ] Inbox Agent support for marketplace messaging (Upwork/Freelancer),
       not just email — currently only email-threaded sources auto-detect replies
@@ -357,3 +397,11 @@ they're unset; that's a real gap, not a convenience default.
 - [ ] Gradually relax the marketplace approval gate per category once
       accuracy is proven — never by removing the gate itself, only by
       shrinking what needs it
+- [ ] More regression tests as the pipeline state machine grows — the one
+      that exists was written after a bug was found live, not before;
+      more of the agent-routing logic deserves the same coverage
+- [ ] External uptime monitoring — Railway restarts the process on a
+      crash, but nothing outside the process notices if it hangs without
+      crashing. A free service (e.g. UptimeRobot) pinging `/health` and
+      alerting on failure closes this gap; not built here since it's
+      inherently a service outside this codebase
