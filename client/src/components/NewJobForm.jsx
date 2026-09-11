@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { api } from "../api/client.js";
 
-const EMPTY = { title: "", description: "", budget: "", category: "content", source: "MANUAL" };
+const EMPTY = { title: "", description: "", budget: "", category: "content", source: "MANUAL", applyEmail: "" };
 
 export default function NewJobForm({ onCreated }) {
   const [form, setForm] = useState(EMPTY);
@@ -37,6 +37,13 @@ export default function NewJobForm({ onCreated }) {
         onChange={(e) => setForm({ ...form, description: e.target.value })}
         required
         rows={4}
+        style={{ width: "100%", marginBottom: 8 }}
+      />
+      <input
+        placeholder="Client email (optional — links this job to a Client record for tracking)"
+        type="email"
+        value={form.applyEmail}
+        onChange={(e) => setForm({ ...form, applyEmail: e.target.value })}
         style={{ width: "100%", marginBottom: 8 }}
       />
       <div style={{ display: "flex", gap: 8, marginBottom: 8, flexWrap: "wrap" }}>

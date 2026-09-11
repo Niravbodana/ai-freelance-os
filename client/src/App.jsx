@@ -8,9 +8,10 @@ import PerformancePanel from "./components/PerformancePanel.jsx";
 import ActivityFeed from "./components/ActivityFeed.jsx";
 import AdminSettings from "./components/AdminSettings.jsx";
 import LeadsImport from "./components/LeadsImport.jsx";
+import ClientsPanel from "./components/ClientsPanel.jsx";
 
 const AUTO_REFRESH_MS = 30_000;
-const TABS = ["Command Centre", "Jobs", "Admin Settings"];
+const TABS = ["Command Centre", "Jobs", "Clients", "Admin Settings"];
 
 export default function App() {
   const [tab, setTab] = useState("Command Centre");
@@ -128,6 +129,8 @@ export default function App() {
           ))}
         </>
       )}
+
+      {tab === "Clients" && <ClientsPanel />}
 
       {tab === "Admin Settings" && <AdminSettings />}
     </div>

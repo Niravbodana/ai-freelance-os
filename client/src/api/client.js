@@ -25,6 +25,7 @@ export const api = {
   runInbox: () => request(`/agents/inbox/run`, { method: "POST" }),
   runPipeline: () => request(`/agents/pipeline/run`, { method: "POST" }),
   runDigest: () => request(`/agents/digest/run`, { method: "POST" }),
+  listClients: () => request(`/clients`),
   listRuns: () => request(`/agents/runs`),
   stats: () => request(`/stats`),
   listIncidents: (status) => request(`/incidents${status ? `?status=${status}` : ""}`),

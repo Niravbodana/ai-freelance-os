@@ -173,6 +173,31 @@ escalated incidents) — so staying on top of the business doesn't require
 opening the dashboard. Trigger it on demand from Command Centre's "Send
 weekly digest now" button, or `POST /api/agents/digest/run`.
 
+## Clients dashboard
+
+A dedicated **Clients** tab shows every client the business has ever
+dealt with — one card per client with their platform, recurring status,
+every job and its status, and a real financial summary computed straight
+from `Payment` rows: **received** (sum of `PAID` payments) and
+**remaining/outstanding** (sum of invoiced-but-unpaid ones), never
+guessed. Backed by `GET /api/clients` (`routes/clients.js`).
+
+**Audit finding fixed while building this**: a `Client` record only ever
+got created for `OUTREACH` leads imported via `leadsAgent.js` — every
+job discovered by the Hunter Agent from the job boards that are actually
+live right now (RemoteOK, WeWorkRemotely, Remotive, Arbeitnow) had
+`clientId: null` forever, since nothing attached one. That silently broke
+two things: recurring-client detection (`paymentAgent.js` counts `PAID`
+jobs by `clientId`, so it never fired for board-sourced work) and any
+per-client view of the business, since the majority of real job volume
+had nothing to group by. Fixed by `services/clients.js`'s
+`findOrCreateClient()` (dedupes by email), now called wherever a job
+gets an apply-email: the Hunter Agent's job-board adapters, and the
+manual "Add a job" form (which now has an optional client-email field
+for exactly this). Verified live: a manually created job with a client
+email correctly created and linked a `Client` row, visible immediately
+in the Clients tab.
+
 ## Performance feedback loop
 
 Every proposal's real outcome (`ACCEPTED`/`REJECTED`, from the Inbox Agent

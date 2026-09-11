@@ -5,6 +5,7 @@ import { draftProposal, approveProposal, recordProposalOutcome } from "../agents
 import { runWorkerAgent } from "../agents/workerAgent.js";
 import { runDeliveryAgent } from "../agents/deliveryAgent.js";
 import { invoiceJob, markPaid } from "../agents/paymentAgent.js";
+import { findOrCreateClient } from "../services/clients.js";
 import { asyncHandler } from "../utils/asyncHandler.js";
 
 export const jobsRouter = Router();
@@ -27,12 +28,16 @@ jobsRouter.get(
 jobsRouter.post(
   "/",
   asyncHandler(async (req, res) => {
-    const { title, description, budget, category, source, externalUrl } = req.body;
+    const { title, description, budget, category, source, externalUrl, applyEmail } = req.body;
     if (!title || !description || !category || !source) {
       return res.status(400).json({ error: "title, description, category, source are required" });
     }
+    // Same as the Hunter Agent's job-board jobs: an email on file is a real
+    // client relationship, so it gets a Client record (dedup'd by email)
+    // instead of staying an orphaned job with no per-client tracking.
+    const client = applyEmail ? await findOrCreateClient({ email: applyEmail, name: applyEmail, platform: source }) : null;
     const job = await prisma.job.create({
-      data: { title, description, budget, category, source, externalUrl, status: "DISCOVERED" },
+      data: { title, description, budget, category, source, externalUrl, applyEmail: applyEmail || null, clientId: client?.id ?? null, status: "DISCOVERED" },
     });
 
     // Same gate as the Hunter Agent loop: check feasibility, and only draft

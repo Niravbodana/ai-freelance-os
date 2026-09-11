@@ -11,6 +11,7 @@ import { incidentsRouter } from "./routes/incidents.js";
 import { adminRouter } from "./routes/admin.js";
 import { leadsRouter } from "./routes/leads.js";
 import { paymentsRouter } from "./routes/payments.js";
+import { clientsRouter } from "./routes/clients.js";
 import { statusRouter } from "./routes/status.js";
 import { startScheduler } from "./scheduler.js";
 import { recordAndEscalateNow } from "./services/incidents.js";
@@ -70,6 +71,7 @@ app.use("/api/incidents", incidentsRouter);
 app.use("/api/admin", adminRouter);
 app.use("/api/leads", leadsRouter);
 app.use("/api/payments", paymentsRouter);
+app.use("/api/clients", clientsRouter);
 app.use("/status", statusRouter);
 
 // Serve the built dashboard from the same origin/process as the API. This

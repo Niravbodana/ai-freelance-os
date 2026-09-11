@@ -1,6 +1,7 @@
 import { prisma } from "../db/client.js";
 import { checkFeasibility } from "./feasibilityAgent.js";
 import { draftProposal } from "./proposalAgent.js";
+import { findOrCreateClient } from "../services/clients.js";
 import {
   remoteOkAdapter,
   weWorkRemotelyAdapter,
@@ -69,6 +70,14 @@ export async function runHunterAgent() {
           : null;
         if (exists) continue;
 
+        // A job-board posting with an apply-by email is a real client
+        // relationship, not a one-off — attach (or create) their Client
+        // record now so recurring-client detection and the Clients
+        // dashboard actually see this job, same as OUTREACH leads already do.
+        const client = job.applyEmail
+          ? await findOrCreateClient({ email: job.applyEmail, name: job.applyEmail, platform: job.source })
+          : null;
+
         const created = await prisma.job.create({
           data: {
             source: job.source,
@@ -79,6 +88,7 @@ export async function runHunterAgent() {
             category: job.category,
             applyEmail: job.applyEmail ?? null,
             externalMeta: job.meta ?? undefined,
+            clientId: client?.id ?? null,
             status: "DISCOVERED",
           },
         });
