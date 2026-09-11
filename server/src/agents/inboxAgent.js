@@ -12,6 +12,12 @@ import { recordIncident } from "../services/incidents.js";
 // Anything below this band still needs a real decision from the owner.
 const ACCEPTABLE_COUNTER_BAND = 0.2; // accept down to 20% below our ask
 
+// Revisions beyond this many auto-loop straight to the owner instead of
+// Worker Agent — a client who's still unhappy after 2 free rounds needs a
+// real decision (refund the deposit, negotiate a paid extra round, walk
+// away), not more unattended AI work that might never satisfy them.
+const REVISION_FREE_ROUNDS = 2;
+
 function extractRate(str) {
   if (!str) return null;
   const match = String(str).match(/[\d.]+/);
@@ -187,14 +193,30 @@ async function handlePostDeliveryReply(job, email) {
 
   if (intent === "REVISION_REQUEST") {
     if (!job.deliverable) return; // nothing to revise against — fall through silently
+    const nextCount = (job.deliverable.revisionCount || 0) + 1;
+
+    if (nextCount > REVISION_FREE_ROUNDS) {
+      // Don't auto-loop a client we may never satisfy — stop and let the
+      // owner decide (refund the deposit, negotiate a paid extra round,
+      // or walk away) rather than Worker Agent quietly doing unlimited
+      // free work.
+      await recordIncident({
+        source: "REVISION_LIMIT",
+        jobId: job.id,
+        message: `Client requested a ${nextCount}th revision on "${job.title}" (${REVISION_FREE_ROUNDS} free rounds already used): "${detail}". Needs a decision — refund, paid extra round, or decline further changes.`,
+        maxRetries: 0,
+      });
+      return;
+    }
+
     await prisma.deliverable.update({
       where: { jobId: job.id },
-      data: { needsRevision: true, qaPassed: false, revisionNotes: detail },
+      data: { needsRevision: true, qaPassed: false, revisionNotes: detail, revisionCount: nextCount },
     });
     await prisma.job.update({ where: { id: job.id }, data: { status: "IN_PROGRESS" } });
     await notifyOwner(
       `Revision requested: ${job.title}`,
-      `Client asked for: "${detail}". Worker Agent will revise and re-QA automatically on the next pipeline sweep.`
+      `Client asked for: "${detail}" (revision ${nextCount} of ${REVISION_FREE_ROUNDS} free). Worker Agent will revise and re-QA automatically on the next pipeline sweep.`
     );
   } else if (intent === "SATISFIED") {
     // Informational only — nothing to do, this is the good outcome.

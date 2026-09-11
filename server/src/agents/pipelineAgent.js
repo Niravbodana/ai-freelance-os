@@ -1,9 +1,17 @@
 import { prisma } from "../db/client.js";
 import { runWorkerAgent, SUPPORTED_CATEGORIES } from "./workerAgent.js";
 import { runDeliveryAgent } from "./deliveryAgent.js";
-import { invoiceJob } from "./paymentAgent.js";
+import { invoiceJob, parseRate } from "./paymentAgent.js";
 import { sendContract } from "./contractAgent.js";
 import { recordIncident } from "../services/incidents.js";
+
+// Below this, the deposit gate's own protection costs more (in lost
+// trust/conversion on a tiny job) than the non-payment risk it's guarding
+// against — a stranger skipping out on a $30 job is a rounding error, but
+// being asked for money upfront by a brand-new operation is exactly the
+// kind of thing that makes them pick someone else instead. The contract
+// email still goes out either way (free, no trust cost).
+const DEPOSIT_EXEMPT_BELOW_USD = 50;
 
 // UPWORK/FREELANCER/GURU carry their own platform escrow/ToS protecting
 // payment — those are excluded. Everything else (our own outreach, manual
@@ -16,7 +24,12 @@ import { recordIncident } from "../services/incidents.js";
 const NEW_CLIENT_RISK_SOURCES = new Set(["OUTREACH", "MANUAL", "REMOTE_BOARD"]);
 
 function isRisky(job) {
-  return NEW_CLIENT_RISK_SOURCES.has(job.source) && !job.client?.isRecurring;
+  if (!NEW_CLIENT_RISK_SOURCES.has(job.source) || job.client?.isRecurring) return false;
+  const rate = parseRate(job.proposal?.proposedRate);
+  // No parseable rate (rare — a hand-entered MANUAL job with no rate) still
+  // gets the deposit gate, since we can't confirm it's small.
+  if (rate != null && rate < DEPOSIT_EXEMPT_BELOW_USD) return false;
+  return true;
 }
 
 /**

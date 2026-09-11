@@ -152,6 +152,12 @@ model Deliverable {
   needsRevision Boolean   @default(false)
   qaFeedback    String?
   revisionNotes String?
+  // Counts client-requested revisions (post-delivery REVISION_REQUEST
+  // replies — see inboxAgent.js). The first REVISION_FREE_ROUNDS are
+  // free and auto-looped through Worker Agent; beyond that, further
+  // requests escalate to the owner instead of looping forever on a
+  // client who may never be satisfied.
+  revisionCount Int       @default(0)
   deliveredAt   DateTime?
   createdAt     DateTime  @default(now())
 }

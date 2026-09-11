@@ -7,9 +7,16 @@ import { askClaude } from "../services/claude.js";
 
 const REMINDER_INTERVAL_DAYS = 3;
 const DUE_IN_DAYS = 7;
-const DEPOSIT_FRACTION = 0.5;
+// 50% read as too aggressive for a new, unproven operation — a stranger
+// asked to pay half a project's cost upfront to a business with no track
+// record hurts conversion more than it protects revenue. 30% is real
+// protection (a no-show client still costs us nothing, since Worker Agent
+// never starts without it) without being the thing that makes them walk
+// away. See pipelineAgent.js's isRisky() for the size-based exemption
+// that skips this entirely for small jobs.
+const DEPOSIT_FRACTION = 0.3;
 
-function parseRate(rateStr) {
+export function parseRate(rateStr) {
   const match = String(rateStr ?? "").match(/[\d.]+/);
   return match ? parseFloat(match[0]) : null;
 }
