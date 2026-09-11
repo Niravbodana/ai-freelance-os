@@ -145,6 +145,6 @@ function guessCategory(tagsOrText) {
   if (/copy|writ|content|blog|article|editor|editing|proofread|translat|ghostwrit|screenplay|newsletter|press release|seo\b/.test(joined))
     return "content";
   if (/\bdata\b|scrape|research|\bexcel\b|analy|spreadsheet|summar/.test(joined)) return "data";
-  if (/dev|code|engineer|program|software/.test(joined)) return "code";
+  if (/\bdev(eloper)?\b|code|engineer|program|software/.test(joined)) return "code";
   return "other";
 }

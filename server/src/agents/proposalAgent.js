@@ -5,6 +5,7 @@ import { placeFreelancerBid } from "./sources/freelancerCom.js";
 import { recordIncident, registerRetryHandler } from "../services/incidents.js";
 import { getPerformanceSummary } from "../services/performance.js";
 import { getConfig } from "../services/config.js";
+import { SUPPORTED_CATEGORIES } from "./workerAgent.js";
 
 const SYSTEM_PROMPT = `You are a freelance proposal writer and rate negotiator. Given a job post,
 write a short, specific, non-generic proposal (120-180 words) that:
@@ -39,6 +40,23 @@ function canAutoSend(job) {
 
 export async function draftProposal(jobId) {
   const job = await prisma.job.findUniqueOrThrow({ where: { id: jobId } });
+
+  // Belt-and-suspenders: checkFeasibility() already gates category before
+  // this is ever called, but a job can carry a stale feasible:true from
+  // before that gate existed (or from a retried PROPOSAL incident that
+  // never re-checks feasibility) — this makes sure no proposal, auto-sent
+  // or not, ever goes out for work outside Worker Agent's actual scope.
+  if (!SUPPORTED_CATEGORIES.includes(job.category)) {
+    await prisma.job.update({
+      where: { id: jobId },
+      data: {
+        feasible: false,
+        feasibilityNote: `Category "${job.category}" is outside current scope (${SUPPORTED_CATEGORIES.join("/")} only) — no proposal drafted.`,
+        status: "NOT_FEASIBLE",
+      },
+    });
+    return null;
+  }
 
   const run = await prisma.agentRun.create({
     data: { agent: "PROPOSAL", jobId, status: "RUNNING" },

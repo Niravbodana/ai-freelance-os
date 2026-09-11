@@ -26,6 +26,10 @@ export const api = {
   runPipeline: () => request(`/agents/pipeline/run`, { method: "POST" }),
   runDigest: () => request(`/agents/digest/run`, { method: "POST" }),
   listClients: () => request(`/clients`),
+  listProposals: () => request(`/proposals`),
+  approveProposalById: (jobId, editedText) =>
+    request(`/proposals/${jobId}/approve`, { method: "POST", body: JSON.stringify({ editedText }) }),
+  rejectProposalById: (jobId) => request(`/proposals/${jobId}/reject`, { method: "POST" }),
   listRuns: () => request(`/agents/runs`),
   stats: () => request(`/stats`),
   listIncidents: (status) => request(`/incidents${status ? `?status=${status}` : ""}`),

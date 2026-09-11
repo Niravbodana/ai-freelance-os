@@ -10,9 +10,10 @@ import AdminSettings from "./components/AdminSettings.jsx";
 import LeadsImport from "./components/LeadsImport.jsx";
 import ClientsPanel from "./components/ClientsPanel.jsx";
 import OfficeView from "./components/OfficeView.jsx";
+import ProposalsPanel from "./components/ProposalsPanel.jsx";
 
 const AUTO_REFRESH_MS = 30_000;
-const TABS = ["Office", "Command Centre", "Jobs", "Clients", "Admin Settings"];
+const TABS = ["Office", "Command Centre", "Proposals", "Jobs", "Clients", "Admin Settings"];
 
 export default function App() {
   const [tab, setTab] = useState("Office");
@@ -132,6 +133,8 @@ export default function App() {
           ))}
         </>
       )}
+
+      {tab === "Proposals" && <ProposalsPanel />}
 
       {tab === "Clients" && <ClientsPanel />}
 
