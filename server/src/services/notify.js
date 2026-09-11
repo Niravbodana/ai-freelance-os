@@ -55,8 +55,11 @@ export const notifications = {
       `Proposal needs your approval: ${job.title}`,
       `A proposal for "${job.title}" (${job.source}) is waiting for your approval before it's sent.\nOpen the dashboard to review and approve.`
     ),
-  jobNotFeasible: (job, note) =>
-    notifyOwner(`Skipped (not feasible): ${job.title}`, `Reason: ${note}`),
+  // Not-feasible jobs are the normal, expected outcome of the feasibility
+  // gate doing its job — there's nothing for the owner to act on, so this
+  // stays a log line only. Emailing one per rejected job (dozens per Hunter
+  // run, mostly full-time postings from general job boards) was pure noise.
+  jobNotFeasible: (job, note) => console.log(`[notify] (not feasible, no email) ${job.title}: ${note}`),
   autoSent: (job) =>
     notifyOwner(
       `Proposal auto-sent: ${job.title}`,

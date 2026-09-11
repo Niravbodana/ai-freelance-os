@@ -2,6 +2,7 @@ import { prisma } from "../db/client.js";
 import { checkFeasibility } from "./feasibilityAgent.js";
 import { draftProposal } from "./proposalAgent.js";
 import { findOrCreateClient } from "../services/clients.js";
+import { SUPPORTED_CATEGORIES } from "./workerAgent.js";
 import {
   remoteOkAdapter,
   weWorkRemotelyAdapter,
@@ -94,13 +95,33 @@ export async function runHunterAgent() {
         });
         discovered += 1;
 
-        // Every newly discovered job is gated by feasibility before a
-        // proposal is ever drafted — "if we can deliver it, take it; if not,
-        // skip it" is enforced here, not left to a human to remember. Each
-        // job's processing is isolated: checkFeasibility/draftProposal
-        // already record their own Incident and get retried by the
-        // incident sweep, so one bad job must not stop the rest of this
-        // batch from being processed.
+        // Category is a hard pre-filter, checked before spending a single
+        // Claude call: general job boards are overwhelmingly full-time
+        // postings (engineers, managers, sales) that were never going to
+        // pass feasibility anyway. Rejecting those on category alone (no
+        // AI call) is what "only look at jobs we can actually do" means in
+        // practice — it saves the API cost and the inbox noise of running
+        // (and then explaining) an LLM verdict on something obviously out
+        // of scope. Only content/data-shaped jobs reach the real,
+        // judgment-based Feasibility Agent below.
+        if (!SUPPORTED_CATEGORIES.includes(job.category)) {
+          await prisma.job.update({
+            where: { id: created.id },
+            data: {
+              feasible: false,
+              feasibilityNote: `Category "${job.category}" is outside current scope (${SUPPORTED_CATEGORIES.join("/")} only) — skipped without an AI check.`,
+              status: "NOT_FEASIBLE",
+            },
+          });
+          continue;
+        }
+
+        // Every remaining job is gated by feasibility before a proposal is
+        // ever drafted — "if we can deliver it, take it; if not, skip it"
+        // is enforced here, not left to a human to remember. Each job's
+        // processing is isolated: checkFeasibility/draftProposal already
+        // record their own Incident and get retried by the incident sweep,
+        // so one bad job must not stop the rest of this batch.
         try {
           const { feasible } = await checkFeasibility(created.id);
           if (feasible) {
