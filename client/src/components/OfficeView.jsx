@@ -349,6 +349,11 @@ export default function OfficeView() {
       {error && <p style={{ color: "#dc2626" }}>{error}</p>}
       {loading && <p style={{ color: "#6b7280" }}>Opening the office...</p>}
 
+      <div className="office-photo-banner">
+        <img src="/office/office-photo.png" alt="The AI Freelance OS office" />
+        <div className="office-photo-caption">Our office</div>
+      </div>
+
       <div className="ceiling-lights">
         <div className="ceiling-light" />
         <div className="ceiling-light" />
