@@ -56,9 +56,20 @@ export async function weWorkRemotelyAdapter() {
   return results;
 }
 
+// Remotive's own API terms explicitly ask callers to poll "max. 4 times a
+// day" (roughly every 6 hours) — this throttle enforces that regardless of
+// how often the Hunter Agent itself runs, so a faster Hunter interval
+// (set for the other sources) never turns into excessive Remotive traffic
+// that risks losing access to a free, working source.
+const REMOTIVE_MIN_INTERVAL_MS = 6 * 60 * 60 * 1000;
+let lastRemotiveFetchAt = 0;
+
 // Remotive runs a public, no-auth JSON API explicitly meant for reuse —
 // no signup, no approval process, works today.
 export async function remotiveAdapter() {
+  if (Date.now() - lastRemotiveFetchAt < REMOTIVE_MIN_INTERVAL_MS) return [];
+  lastRemotiveFetchAt = Date.now();
+
   const res = await fetch("https://remotive.com/api/remote-jobs?limit=40", {
     headers: { "User-Agent": "ai-freelance-os (contact: " + (getConfig("OWNER_EMAIL") || "n/a") + ")" },
   });
@@ -122,10 +133,18 @@ function extractEmail(text) {
   return match ? match[0] : null;
 }
 
+// Broad enough to catch genuine near-misses (a "Data Analyst" posting is
+// worth a real Feasibility Agent look, not an instant reject) without
+// being so broad it stops meaning anything — Hunter Agent now hard-skips
+// anything that lands outside content/data, so a job mis-tagged "other"
+// here never even reaches the Feasibility Agent. Erring toward "content"/
+// "data" costs one extra Claude call on a near-miss; erring toward
+// "other" costs the job entirely.
 function guessCategory(tagsOrText) {
   const joined = tagsOrText.join(" ").toLowerCase();
-  if (/copy|writ|content|blog|article/.test(joined)) return "content";
-  if (/data|scrape|research|excel/.test(joined)) return "data";
+  if (/copy|writ|content|blog|article|editor|editing|proofread|translat|ghostwrit|screenplay|newsletter|press release|seo\b/.test(joined))
+    return "content";
+  if (/\bdata\b|scrape|research|\bexcel\b|analy|spreadsheet|summar/.test(joined)) return "data";
   if (/dev|code|engineer|program|software/.test(joined)) return "code";
   return "other";
 }
