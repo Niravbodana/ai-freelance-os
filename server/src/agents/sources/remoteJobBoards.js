@@ -167,6 +167,27 @@ export async function workingNomadsAdapter() {
   }));
 }
 
+// Landing.jobs runs a public, no-auth JSON API at this same URL — no
+// signup, no key, documented as an open feed on their own site.
+export async function landingJobsAdapter() {
+  const res = await fetch("https://landing.jobs/api/v1/jobs", {
+    headers: { "User-Agent": "ai-freelance-os (contact: " + (getConfig("OWNER_EMAIL") || "n/a") + ")" },
+  });
+  if (!res.ok) return [];
+  const jobs = await res.json();
+  return (Array.isArray(jobs) ? jobs : [])
+    .filter((job) => job.remote)
+    .map((job) => ({
+      source: "REMOTE_BOARD",
+      externalUrl: job.url,
+      title: job.title,
+      description: stripHtml(`${job.role_description || ""} ${job.main_requirements || ""}`) || job.title,
+      budget: job.gross_salary_low ? `${job.gross_salary_low}-${job.gross_salary_high ?? ""} ${job.currency_code ?? ""}`.trim() : null,
+      category: guessCategory([...(job.tags || []), job.title]),
+      applyEmail: extractEmail(job.role_description || ""),
+    }));
+}
+
 function parseRssItems(xml) {
   const items = [];
   const itemBlocks = xml.split("<item>").slice(1);
