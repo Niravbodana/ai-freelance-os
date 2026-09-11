@@ -6,6 +6,7 @@ import { recordIncident, registerRetryHandler } from "../services/incidents.js";
 import { getPerformanceSummary } from "../services/performance.js";
 import { getConfig } from "../services/config.js";
 import { SUPPORTED_CATEGORIES } from "./workerAgent.js";
+import { findOrCreateClient } from "../services/clients.js";
 
 const SYSTEM_PROMPT = `You are a freelance proposal writer and rate negotiator. Given a job post,
 write a short, specific, non-generic proposal (120-180 words) that:
@@ -55,6 +56,7 @@ export async function draftProposal(jobId) {
         status: "NOT_FEASIBLE",
       },
     });
+    await prisma.rejectionLog.create({ data: { category: job.category } });
     return null;
   }
 
@@ -118,6 +120,14 @@ export async function draftProposal(jobId) {
     if (autoSend) {
       if (job.applyEmail) {
         await sendProposalEmail({ to: job.applyEmail, subject: `Application: ${job.title}`, text: draftText });
+        // A Client record is created here — the moment a proposal is
+        // genuinely sent — not at job discovery. Otherwise every job
+        // posting with an extractable email would show up in the Clients
+        // tab as a "client" we'd never actually contacted.
+        if (!job.clientId) {
+          const client = await findOrCreateClient({ email: job.applyEmail, name: job.applyEmail, platform: job.source });
+          await prisma.job.update({ where: { id: jobId }, data: { clientId: client.id } });
+        }
       }
       await notifications.autoSent(job);
     } else {
@@ -168,7 +178,10 @@ export async function approveProposal(jobId, editedText) {
     where: { jobId },
     data: { approved: true, approvedAt: new Date(), editedText: editedText ?? undefined, sentAt: new Date() },
   });
-  await prisma.job.update({ where: { id: jobId }, data: { status: "PROPOSAL_SENT" } });
+  // Same rule as the auto-send path: a Client only exists once we've
+  // actually sent something, never at mere discovery.
+  const clientData = job.applyEmail && !job.clientId ? { clientId: (await findOrCreateClient({ email: job.applyEmail, name: job.applyEmail, platform: job.source })).id } : {};
+  await prisma.job.update({ where: { id: jobId }, data: { status: "PROPOSAL_SENT", ...clientData } });
   return proposal;
 }
 

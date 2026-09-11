@@ -1,5 +1,5 @@
 import cron from "node-cron";
-import { runHunterAgent } from "./agents/hunterAgent.js";
+import { runHunterAgent, cleanupRejectedJobs } from "./agents/hunterAgent.js";
 import { sweepOverduePayments } from "./agents/paymentAgent.js";
 import { processInbox } from "./agents/inboxAgent.js";
 import { advancePipeline } from "./agents/pipelineAgent.js";
@@ -61,6 +61,19 @@ export function startScheduler() {
       await retrySweep();
     } catch (err) {
       console.error("[scheduler] incident retry sweep itself failed:", err);
+    }
+  });
+
+  // Rejected jobs are dead weight the moment they're rejected — clears
+  // anything NOT_FEASIBLE for 5+ minutes so the Jobs list stays readable
+  // even with 8 sources feeding in. The category is preserved in
+  // RejectionLog first (see feasibilityAgent.js/proposalAgent.js) so the
+  // weekly digest's growth-opportunity scan still works after cleanup.
+  cron.schedule("*/5 * * * *", async () => {
+    try {
+      await cleanupRejectedJobs();
+    } catch (err) {
+      console.error("[scheduler] rejected-job cleanup failed:", err);
     }
   });
 

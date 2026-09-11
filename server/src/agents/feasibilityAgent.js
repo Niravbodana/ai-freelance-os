@@ -43,6 +43,7 @@ export async function checkFeasibility(jobId) {
       where: { id: jobId },
       data: { feasible: false, feasibilityNote: note, status: "NOT_FEASIBLE" },
     });
+    await prisma.rejectionLog.create({ data: { category: job.category } });
     return { feasible: false, note };
   }
 

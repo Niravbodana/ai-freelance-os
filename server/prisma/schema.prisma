@@ -196,6 +196,19 @@ model UsageLog {
   createdAt    DateTime @default(now())
 }
 
+// A tiny, permanent record of what category a rejected job was — written
+// the instant a job is marked NOT_FEASIBLE, independent of the Job row
+// itself. Exists so digestAgent.js's growth-opportunity scan still works
+// after rejected Job rows get cleaned up (hunterAgent.js deletes them 5
+// minutes after rejection to keep the Jobs list from filling up with
+// things that will never move again) — this is the one thing worth
+// keeping from a rejected job, not the full description/title.
+model RejectionLog {
+  id        String   @id @default(cuid())
+  category  String
+  createdAt DateTime @default(now())
+}
+
 // The self-healing log: every agent failure becomes an Incident. A
 // scheduled sweep retries it automatically; only once retries are
 // exhausted (or there's no automatic retry path) does it get ESCALATED,

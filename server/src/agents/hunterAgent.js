@@ -1,7 +1,6 @@
 import { prisma } from "../db/client.js";
 import { checkFeasibility } from "./feasibilityAgent.js";
 import { draftProposal } from "./proposalAgent.js";
-import { findOrCreateClient } from "../services/clients.js";
 import {
   remoteOkAdapter,
   weWorkRemotelyAdapter,
@@ -55,6 +54,29 @@ registerJobSource(landingJobsAdapter);
 registerJobSource(freelancerComAdapter);
 registerJobSource(guruComAdapter);
 
+const REJECTED_JOB_TTL_MS = 5 * 60 * 1000;
+
+/**
+ * A NOT_FEASIBLE job is dead weight the moment it's rejected — it will
+ * never move again, and with 8 job-board sources now feeding in, the Jobs
+ * list would otherwise fill up with hundreds of things nobody will ever
+ * look at. Deletes anything rejected more than 5 minutes ago. AgentRun
+ * rows are deleted first since they reference the job with no cascade.
+ */
+export async function cleanupRejectedJobs() {
+  const cutoff = new Date(Date.now() - REJECTED_JOB_TTL_MS);
+  const stale = await prisma.job.findMany({
+    where: { status: "NOT_FEASIBLE", updatedAt: { lt: cutoff } },
+    select: { id: true },
+  });
+  if (stale.length === 0) return { deleted: 0 };
+
+  const ids = stale.map((j) => j.id);
+  await prisma.agentRun.deleteMany({ where: { jobId: { in: ids } } });
+  await prisma.job.deleteMany({ where: { id: { in: ids } } });
+  return { deleted: ids.length };
+}
+
 export async function runHunterAgent() {
   const run = await prisma.agentRun.create({
     data: { agent: "HUNTER", status: "RUNNING" },
@@ -78,14 +100,14 @@ export async function runHunterAgent() {
           : null;
         if (exists) continue;
 
-        // A job-board posting with an apply-by email is a real client
-        // relationship, not a one-off — attach (or create) their Client
-        // record now so recurring-client detection and the Clients
-        // dashboard actually see this job, same as OUTREACH leads already do.
-        const client = job.applyEmail
-          ? await findOrCreateClient({ email: job.applyEmail, name: job.applyEmail, platform: job.source })
-          : null;
-
+        // Deliberately no Client record yet — a job board posting with an
+        // extractable email isn't a client relationship until we've
+        // actually sent them a proposal. Attaching a Client at mere
+        // discovery time (an earlier version of this) meant the Clients
+        // tab showed companies we'd never contacted, just because their
+        // job post happened to contain an email address. See
+        // proposalAgent.js for where the Client actually gets created —
+        // at the moment a proposal is genuinely sent, not before.
         const created = await prisma.job.create({
           data: {
             source: job.source,
@@ -96,7 +118,6 @@ export async function runHunterAgent() {
             category: job.category,
             applyEmail: job.applyEmail ?? null,
             externalMeta: job.meta ?? undefined,
-            clientId: client?.id ?? null,
             status: "DISCOVERED",
           },
         });

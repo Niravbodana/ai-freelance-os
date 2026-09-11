@@ -14,9 +14,13 @@ const OPPORTUNITY_MIN_COUNT = 5;
  * deciding whether to build support for. Pure reporting, no action taken.
  */
 async function scanGrowthOpportunities(weekAgo) {
-  const rejected = await prisma.job.groupBy({
+  // Reads RejectionLog, not Job rows — hunterAgent.js's cleanup deletes
+  // rejected Job rows 5 minutes after rejection to keep the Jobs list from
+  // filling up, so this permanent, lightweight log is what survives long
+  // enough for a weekly scan.
+  const rejected = await prisma.rejectionLog.groupBy({
     by: ["category"],
-    where: { status: "NOT_FEASIBLE", createdAt: { gte: weekAgo }, category: { notIn: SUPPORTED_CATEGORIES } },
+    where: { createdAt: { gte: weekAgo }, category: { notIn: SUPPORTED_CATEGORIES } },
     _count: { category: true },
   });
 
