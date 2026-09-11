@@ -32,14 +32,18 @@ enum JobStatus {
 }
 
 model Client {
-  id          String   @id @default(cuid())
-  name        String
-  email       String?
-  platform    JobSource
-  notes       String?
-  isRecurring Boolean  @default(false)
-  createdAt   DateTime @default(now())
-  jobs        Job[]
+  id                String    @id @default(cuid())
+  name              String
+  email             String?
+  platform          JobSource
+  notes             String?
+  isRecurring       Boolean   @default(false)
+  // Set the moment a client crosses the recurring threshold and gets
+  // pitched a retainer package — see paymentAgent.js's pitchRetainer().
+  // Guards against pitching the same client twice.
+  retainerPitchedAt DateTime?
+  createdAt         DateTime  @default(now())
+  jobs              Job[]
 }
 
 model Job {
@@ -165,6 +169,7 @@ enum AgentType {
   LEADS
   CONTRACT
   DIGEST
+  RETAINER
 }
 
 model AgentRun {
