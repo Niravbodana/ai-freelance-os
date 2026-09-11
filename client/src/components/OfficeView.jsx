@@ -74,22 +74,84 @@ function statusOf(run) {
 
 const STATUS_LABEL = { idle: "Away", working: "Working", done: "Done", error: "Stuck" };
 
-function Character({ meta, status, isCeo, walking, arriving }) {
+// A proper illustrated figure (flat-design, not box-shaped) — head, hair,
+// shoulders and arms as SVG paths so proportions and silhouette read as an
+// actual person instead of stacked rectangles. `pose="standing"` (used in
+// the break room) adds legs and shoes; the desk pose stops at the waist,
+// same as any front-facing seated illustration where the desk hides the
+// rest.
+function Character({ meta, status, isCeo, walking, arriving, pose = "sitting" }) {
+  const shirtDark = shade(meta.shirt, -18);
+  const hairD = meta.style === "long"
+    ? "M12,27 C12,12 21,3 32,3 C43,3 52,12 52,27 L52,50 C52,54 48,55 47,50 L45,30 C45,20 39,13 32,13 C25,13 19,20 19,30 L17,50 C16,55 12,54 12,50 Z"
+    : "M13,26 C13,11 21,4 32,4 C43,4 51,11 51,26 C51,19 45,13 32,13 C19,13 13,19 13,26 Z";
+
   return (
-    <div className={`char status-${status}${walking ? " walking" : ""}${arriving ? " arriving" : ""}`}>
-      <div className={`char-hair hair-${meta.style || "short"}`} style={{ background: meta.hair }} />
-      <div className="char-head" style={{ background: meta.skin }}>
-        <div className="char-eyes">
-          <span /> <span />
-        </div>
-        <div className="char-mouth" />
-      </div>
-      <div className="char-body" style={{ background: meta.shirt }}>
-        {isCeo && <div className="char-tie" />}
-      </div>
-      {walking && <div className="char-shadow" />}
+    <div className={`char status-${status}${walking ? " walking" : ""}${arriving ? " arriving" : ""} pose-${pose}`}>
+      <svg
+        viewBox="0 0 64 96"
+        preserveAspectRatio={pose === "standing" ? "xMidYMid meet" : "xMidYMin slice"}
+        className="char-svg"
+        role="img"
+        aria-label={meta.name}
+      >
+        {pose === "standing" && (
+          <>
+            <ellipse cx="32" cy="92" rx="16" ry="3" className="char-shadow-el" />
+            <rect x="20" y="66" width="9" height="24" rx="4" fill={shirtDark} />
+            <rect x="35" y="66" width="9" height="24" rx="4" fill={shirtDark} />
+            <ellipse cx="24.5" cy="91" rx="6" ry="3" fill="#2b2f36" />
+            <ellipse cx="39.5" cy="91" rx="6" ry="3" fill="#2b2f36" />
+          </>
+        )}
+
+        {/* torso / shoulders */}
+        <path
+          d="M10,90 C10,66 16,52 32,52 C48,52 54,66 54,90 Z"
+          fill={meta.shirt}
+        />
+        {isCeo && <path d="M29,52 L35,52 L33,66 L32,74 L31,66 Z" fill="#b91c1c" />}
+        {!isCeo && <path d="M10,58 C16,64 48,64 54,58 L54,66 C44,72 20,72 10,66 Z" fill={shirtDark} opacity="0.55" />}
+
+        {/* arms resting forward (typing pose) */}
+        <rect x="2" y="62" width="14" height="16" rx="7" fill={shirtDark} />
+        <rect x="48" y="62" width="14" height="16" rx="7" fill={shirtDark} />
+        <circle cx="9" cy="78" r="6.5" fill={meta.skin} />
+        <circle cx="55" cy="78" r="6.5" fill={meta.skin} />
+
+        {/* neck */}
+        <rect x="26" y="38" width="12" height="14" rx="4" fill={meta.skin} />
+
+        {/* head */}
+        <circle cx="32" cy="28" r="17" fill={meta.skin} />
+        <circle cx="32" cy="33" r="17" fill="#000" opacity="0.05" />
+        <circle cx="32" cy="28" r="17" fill={meta.skin} />
+
+        {/* hair */}
+        <path d={hairD} fill={meta.hair} />
+
+        {/* face */}
+        <circle cx="26" cy="29" r="1.8" fill="#2b2f36" />
+        <circle cx="38" cy="29" r="1.8" fill="#2b2f36" />
+        <path d="M27,36 Q32,40 37,36" stroke="#8a5a35" strokeWidth="2" fill="none" strokeLinecap="round" />
+        <path d="M21,23 Q26,18 31,22" stroke={meta.hair} strokeWidth="2" fill="none" strokeLinecap="round" opacity="0.7" />
+        <path d="M43,23 Q38,18 33,22" stroke={meta.hair} strokeWidth="2" fill="none" strokeLinecap="round" opacity="0.7" />
+      </svg>
     </div>
   );
+}
+
+// Lightens/darkens a #rrggbb hex color by `percent` (negative = darker) —
+// used to derive sleeve/collar shading from each agent's base shirt color
+// without hand-picking a second color per agent.
+function shade(hex, percent) {
+  const num = parseInt(hex.replace("#", ""), 16);
+  const clamp = (v) => Math.max(0, Math.min(255, v));
+  const amt = Math.round(2.55 * percent);
+  const r = clamp((num >> 16) + amt);
+  const g = clamp(((num >> 8) & 0x00ff) + amt);
+  const b = clamp((num & 0x0000ff) + amt);
+  return `#${(0x1000000 + r * 0x10000 + g * 0x100 + b).toString(16).slice(1)}`;
 }
 
 function Desk({ agentType, run, roaming, arriving }) {
@@ -110,14 +172,27 @@ function Desk({ agentType, run, roaming, arriving }) {
           {roaming ? `${roaming.caption} · ${roaming.label}` : "Away from desk"}
         </div>
       )}
-      <div className="monitor">
-        <div className={`screen status-${status}`}>
-          {status === "working" && <span className="screen-cursor" />}
-          {status === "done" && <span className="screen-icon">✓</span>}
-          {status === "error" && <span className="screen-icon">✕</span>}
-          {status === "idle" && <span className="screen-sleep">Zz</span>}
-        </div>
-        <div className="monitor-stand" />
+      <div className="laptop">
+        <svg viewBox="0 0 60 40" className="laptop-svg">
+          <rect x="6" y="2" width="48" height="30" rx="2" fill="#334155" />
+          <rect x="9" y="5" width="42" height="24" rx="1" className={`laptop-screen status-${status}`} />
+          <path d="M0,32 L60,32 L54,38 L6,38 Z" fill="#cbd5e1" />
+          {status === "working" && <circle cx="30" cy="17" r="2.4" className="screen-cursor-dot" />}
+          {status === "done" && (
+            <path d="M22,17 L28,23 L38,11" stroke="#4ade80" strokeWidth="3" fill="none" strokeLinecap="round" strokeLinejoin="round" />
+          )}
+          {status === "error" && (
+            <>
+              <path d="M24,11 L36,23" stroke="#f87171" strokeWidth="3" strokeLinecap="round" />
+              <path d="M36,11 L24,23" stroke="#f87171" strokeWidth="3" strokeLinecap="round" />
+            </>
+          )}
+          {status === "idle" && (
+            <text x="30" y="20" textAnchor="middle" fontSize="9" fill="#64748b" fontWeight="700">
+              Zz
+            </text>
+          )}
+        </svg>
       </div>
       <div className="desk-top" />
       <div className="desk-front" />
@@ -144,7 +219,7 @@ function BreakRoom({ occupants }) {
         <div className="break-spot-label">Cafe</div>
         <div className="break-occupants">
           {(occupants.cafe || []).map((agentType) => (
-            <Character key={agentType} meta={AGENT_META[agentType]} status="idle" walking />
+            <Character key={agentType} meta={AGENT_META[agentType]} status="idle" walking pose="standing" />
           ))}
         </div>
       </div>
@@ -155,7 +230,7 @@ function BreakRoom({ occupants }) {
         <div className="break-spot-label">Smoking Zone</div>
         <div className="break-occupants">
           {(occupants.smoking || []).map((agentType) => (
-            <Character key={agentType} meta={AGENT_META[agentType]} status="idle" walking />
+            <Character key={agentType} meta={AGENT_META[agentType]} status="idle" walking pose="standing" />
           ))}
         </div>
       </div>
@@ -167,7 +242,7 @@ function BreakRoom({ occupants }) {
         <div className="break-spot-label">Restroom</div>
         <div className="break-occupants">
           {(occupants.restroom || []).map((agentType) => (
-            <Character key={agentType} meta={AGENT_META[agentType]} status="idle" walking />
+            <Character key={agentType} meta={AGENT_META[agentType]} status="idle" walking pose="standing" />
           ))}
         </div>
       </div>
@@ -274,9 +349,24 @@ export default function OfficeView() {
       {error && <p style={{ color: "#dc2626" }}>{error}</p>}
       {loading && <p style={{ color: "#6b7280" }}>Opening the office...</p>}
 
+      <div className="ceiling-lights">
+        <div className="ceiling-light" />
+        <div className="ceiling-light" />
+        <div className="ceiling-light" />
+      </div>
+
       <div className="office-wall">
-        <div className="window" />
-        <div className="window" />
+        <div className="bookshelf">
+          <div className="shelf-row" />
+          <div className="shelf-row" />
+        </div>
+        <div className="wall-frame" />
+        <div className="window">
+          <div className="window-pane" />
+        </div>
+        <div className="window">
+          <div className="window-pane" />
+        </div>
         <div className="wall-clock">
           <div className="clock-hand hour" />
           <div className="clock-hand minute" />
@@ -302,7 +392,7 @@ export default function OfficeView() {
           <div className="cooler-jug" />
           <div className="cooler-base" />
           {(idleAgents.filter((a) => roamingByAgent[a]?.id === "cooler")).map((agentType) => (
-            <Character key={agentType} meta={AGENT_META[agentType]} status="idle" walking />
+            <Character key={agentType} meta={AGENT_META[agentType]} status="idle" walking pose="standing" />
           ))}
         </div>
 
