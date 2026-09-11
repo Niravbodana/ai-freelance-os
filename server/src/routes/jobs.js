@@ -16,7 +16,7 @@ jobsRouter.get(
     const { status } = req.query;
     const jobs = await prisma.job.findMany({
       where: status ? { status: String(status) } : undefined,
-      include: { proposal: true, deliverable: true, client: true, payment: true },
+      include: { proposal: true, deliverable: true, client: true, payments: true },
       orderBy: { createdAt: "desc" },
     });
     res.json(jobs);
@@ -142,12 +142,13 @@ jobsRouter.post(
   })
 );
 
-// Confirm payment received (called manually, or by a provider webhook once wired in).
+// Confirm payment received (called manually, or by a provider webhook once
+// wired in). Body: { kind: "DEPOSIT" | "FINAL" } — defaults to FINAL.
 jobsRouter.post(
   "/:id/mark-paid",
   asyncHandler(async (req, res) => {
     try {
-      await markPaid(req.params.id);
+      await markPaid(req.params.id, req.body?.kind || "FINAL");
       res.json({ ok: true });
     } catch (err) {
       res.status(500).json({ error: String(err) });

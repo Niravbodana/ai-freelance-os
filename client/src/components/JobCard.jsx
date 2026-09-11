@@ -12,6 +12,8 @@ const STATUS_PILL_CLASS = {
 export default function JobCard({ job, onChanged }) {
   const [busy, setBusy] = useState(false);
   const [editedText, setEditedText] = useState(job.proposal?.draftText ?? "");
+  const deposit = job.payments?.find((p) => p.kind === "DEPOSIT");
+  const finalPayment = job.payments?.find((p) => p.kind === "FINAL");
 
   async function run(action) {
     setBusy(true);
@@ -101,6 +103,23 @@ export default function JobCard({ job, onChanged }) {
         </div>
       )}
 
+      {job.status === "ACCEPTED" && deposit && deposit.status !== "PAID" && (
+        <div style={{ marginBottom: 8 }}>
+          <p style={{ fontSize: 12, color: "var(--accent-amber)" }}>
+            First-time client — a {deposit.amount} {deposit.currency} deposit was invoiced automatically.
+            Worker Agent holds off until it's marked paid.
+          </p>
+          {deposit.invoiceUrl && (
+            <a href={deposit.invoiceUrl} target="_blank" rel="noreferrer" style={{ color: "var(--accent)" }}>
+              View deposit invoice
+            </a>
+          )}{" "}
+          <button className="btn success" disabled={busy} onClick={() => run(() => api.markPaid(job.id, "DEPOSIT"))}>
+            Mark deposit paid
+          </button>
+        </div>
+      )}
+
       {(job.status === "ACCEPTED" || job.status === "IN_PROGRESS") && (
         <div>
           {!job.deliverable && (
@@ -132,7 +151,7 @@ export default function JobCard({ job, onChanged }) {
         </div>
       )}
 
-      {job.status === "DELIVERED" && !job.payment && (
+      {job.status === "DELIVERED" && !finalPayment && (
         <div>
           <p style={{ color: "var(--accent-green)", fontSize: 12 }}>Delivered ✓ QA passed. Ready to invoice.</p>
           <button className="btn" disabled={busy} onClick={() => run(() => api.invoiceJob(job.id))}>
@@ -141,19 +160,20 @@ export default function JobCard({ job, onChanged }) {
         </div>
       )}
 
-      {job.status === "AWAITING_PAYMENT" && job.payment && (
+      {job.status === "AWAITING_PAYMENT" && finalPayment && (
         <div>
           <p style={{ fontSize: 12, color: "var(--text-dim)" }}>
-            Invoiced {job.payment.amount} {job.payment.currency} via {job.payment.provider}
-            {job.payment.status === "OVERDUE" && <span style={{ color: "var(--accent-red)" }}> — overdue, reminder sent</span>}
+            Invoiced {finalPayment.amount} {finalPayment.currency} via {finalPayment.provider}
+            {deposit?.status === "PAID" && " (after deposit)"}
+            {finalPayment.status === "OVERDUE" && <span style={{ color: "var(--accent-red)" }}> — overdue, reminder sent</span>}
           </p>
-          {job.payment.invoiceUrl && (
-            <a href={job.payment.invoiceUrl} target="_blank" rel="noreferrer" style={{ color: "var(--accent)" }}>
+          {finalPayment.invoiceUrl && (
+            <a href={finalPayment.invoiceUrl} target="_blank" rel="noreferrer" style={{ color: "var(--accent)" }}>
               View invoice
             </a>
           )}
           <div style={{ marginTop: 6 }}>
-            <button className="btn success" disabled={busy} onClick={() => run(() => api.markPaid(job.id))}>
+            <button className="btn success" disabled={busy} onClick={() => run(() => api.markPaid(job.id, "FINAL"))}>
               Mark paid
             </button>
           </div>

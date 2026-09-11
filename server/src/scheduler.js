@@ -3,6 +3,7 @@ import { runHunterAgent } from "./agents/hunterAgent.js";
 import { sweepOverduePayments } from "./agents/paymentAgent.js";
 import { processInbox } from "./agents/inboxAgent.js";
 import { advancePipeline } from "./agents/pipelineAgent.js";
+import { sendWeeklyDigest } from "./agents/digestAgent.js";
 import { retrySweep, recordAndEscalateNow } from "./services/incidents.js";
 
 /**
@@ -63,7 +64,16 @@ export function startScheduler() {
     }
   });
 
+  // Every Monday 8am UTC — the "you don't have to check the dashboard" email.
+  cron.schedule("0 8 * * 1", async () => {
+    try {
+      await sendWeeklyDigest();
+    } catch (err) {
+      console.error("[scheduler] weekly digest failed:", err);
+    }
+  });
+
   console.log(
-    "[scheduler] Hunter/Inbox/Pipeline every 10-15 min, payment sweep every 6h, incident retry sweep every 5 min"
+    "[scheduler] Hunter/Inbox/Pipeline every 10-15 min, payment sweep every 6h, incident retry sweep every 5 min, weekly digest Mondays 8am UTC"
   );
 }

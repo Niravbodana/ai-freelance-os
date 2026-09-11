@@ -18,8 +18,8 @@ small independent operation a lot. No emojis. Sign off simply, no placeholder na
  * markPaid itself.
  */
 export async function requestTestimonial(jobId) {
-  const job = await prisma.job.findUniqueOrThrow({ where: { id: jobId }, include: { payment: true } });
-  const payment = job.payment;
+  const job = await prisma.job.findUniqueOrThrow({ where: { id: jobId }, include: { payments: true } });
+  const payment = job.payments.find((p) => p.kind === "FINAL");
 
   if (!payment || payment.testimonialRequestedAt) return { sent: false, reason: "already requested or no payment" };
 
@@ -37,7 +37,7 @@ export async function requestTestimonial(jobId) {
     });
 
     await sendProposalEmail({ to: clientEmail, subject: `Thank you — ${job.title}`, text: draft });
-    await prisma.payment.update({ where: { jobId }, data: { testimonialRequestedAt: new Date() } });
+    await prisma.payment.update({ where: { id: payment.id }, data: { testimonialRequestedAt: new Date() } });
 
     await prisma.agentRun.update({ where: { id: run.id }, data: { status: "SUCCESS", finishedAt: new Date() } });
     return { sent: true };

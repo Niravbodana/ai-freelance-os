@@ -148,16 +148,30 @@ the start. The Inbox Agent also now watches replies on `DELIVERED`/
 `AWAITING_PAYMENT` jobs (not just pre-acceptance ones), classifying them as
 `SATISFIED` (no action) or `REVISION_REQUEST` (feeds the loop above).
 
-**Deposit recommendation**: a first-time (non-recurring) `OUTREACH`/
-`MANUAL` client has no track record and no platform escrow behind them —
-Pipeline Agent flags this once as an advisory `PIPELINE_DEPOSIT_RECOMMENDED`
-incident rather than silently doing full unpaid work for a stranger. It's
-advisory, not an automated payment gate: the owner sees it and can invoice
-a deposit or run Worker Agent manually from the Jobs tab, both already
-one click away.
+**The deposit gate**: a first-time (non-recurring) `OUTREACH`/`MANUAL`
+client has no track record and no platform escrow behind them. Pipeline
+Agent invoices a real 50% deposit automatically (`Payment.kind: DEPOSIT`)
+and Worker Agent is held back until it's actually marked `PAID` — no more
+doing full unpaid work for a stranger. Trusted jobs (platform-sourced, or
+a client already flagged `isRecurring`) skip straight to Worker Agent as
+before, no deposit involved. The final invoice for a job that took a
+deposit is automatically the *remaining* balance, not the full amount
+again. A `Job`/`Payment` can carry up to one `DEPOSIT` and one `FINAL`
+payment (`@@unique([jobId, kind])`) — this replaced an earlier, weaker
+version of this feature that only left an advisory note for the owner
+rather than actually gating the work.
 
 Clients who pay across 2+ completed jobs are automatically flagged
 `isRecurring` on their client record, for prioritizing repeat relationships.
+
+## Weekly digest
+
+**Digest Agent** (`digestAgent.js`) emails one summary every Monday
+8am UTC: jobs won/active, revenue collected, testimonial requests sent,
+and what needs attention right now (pending approvals, overdue payments,
+escalated incidents) — so staying on top of the business doesn't require
+opening the dashboard. Trigger it on demand from Command Centre's "Send
+weekly digest now" button, or `POST /api/agents/digest/run`.
 
 ## Performance feedback loop
 
@@ -375,6 +389,38 @@ every API action (creating jobs, approving proposals, marking payments
 paid) has no login at all. The server logs a loud warning on startup if
 they're unset; that's a real gap, not a convenience default.
 
+## External uptime monitoring
+
+Railway restarts the process on a crash, but nothing outside the process
+notices if it hangs without crashing (stuck event loop, DB connection pool
+exhausted, etc.) — the cron schedulers would silently stop firing and
+nobody would know. `GET /health` (`server/src/index.js`) already exists
+for exactly this and is deliberately excluded from basic auth so an
+external monitor can hit it with no credentials. This is a 5-minute setup
+on a free third-party service — it's not built into this codebase because
+it inherently has to run outside the process it's watching:
+
+1. **Sign up** at [UptimeRobot](https://uptimerobot.com) (free tier covers
+   this — 50 monitors, 5-minute checks) with any email.
+2. **Add New Monitor** → Monitor Type: `HTTP(s)` → Friendly Name: `AI
+   Freelance OS` → URL: `https://<your-railway-app-url>/health` → Monitoring
+   Interval: 5 minutes (free tier minimum).
+3. **Add an Alert Contact** (Settings → Alert Contacts) — email is
+   instant and free; UptimeRobot also supports SMS/Slack/webhook on paid
+   tiers if you want a louder ping later. Attach that contact to the
+   monitor when creating it.
+4. **Save.** UptimeRobot now polls `/health` every 5 minutes and emails you
+   the moment it stops returning `{ ok: true }` with a 200 — which covers
+   both a crashed process (Railway will already be restarting it, but now
+   you know) and a hung one that never crashes but also never responds.
+5. Optional: add a **public status page** (UptimeRobot → Status Pages) if
+   you ever want clients to see uptime history — not required for the
+   alerting to work.
+
+This closes the one monitoring gap that has to live outside the app: it
+tells you the moment the system stops running, instead of you finding out
+because a job silently stopped moving through the pipeline.
+
 ## Roadmap
 
 - [ ] Verify Claude per-token pricing in `.env` against your actual plan (defaults are placeholders)
@@ -400,8 +446,3 @@ they're unset; that's a real gap, not a convenience default.
 - [ ] More regression tests as the pipeline state machine grows — the one
       that exists was written after a bug was found live, not before;
       more of the agent-routing logic deserves the same coverage
-- [ ] External uptime monitoring — Railway restarts the process on a
-      crash, but nothing outside the process notices if it hangs without
-      crashing. A free service (e.g. UptimeRobot) pinging `/health` and
-      alerting on failure closes this gap; not built here since it's
-      inherently a service outside this codebase

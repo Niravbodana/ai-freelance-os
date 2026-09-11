@@ -24,7 +24,7 @@ function escapeHtml(str) {
   return String(str ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 }
 
-function renderPage({ title, status, deliverableContent, invoiceUrl }) {
+function renderPage({ title, status, deliverableContent, depositUrl, invoiceUrl }) {
   return `<!doctype html>
 <html><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Project Status — ${escapeHtml(title)}</title>
@@ -33,13 +33,14 @@ body{font-family:system-ui,sans-serif;background:#f7f9fb;color:#1a1a1a;max-width
 .card{background:#fff;border:1px solid #e2e2e2;border-radius:10px;padding:24px;}
 .status{display:inline-block;background:#e8f7f0;color:#0a7;border-radius:20px;padding:4px 14px;font-size:13px;font-weight:600;margin:8px 0 16px;}
 pre{white-space:pre-wrap;background:#f2f2f2;border-radius:6px;padding:14px;font-size:14px;}
-a.btn{display:inline-block;background:#0a7;color:#fff;text-decoration:none;padding:10px 18px;border-radius:6px;margin-top:12px;}
+a.btn{display:inline-block;background:#0a7;color:#fff;text-decoration:none;padding:10px 18px;border-radius:6px;margin-top:12px;margin-right:8px;}
 </style></head>
 <body>
 <div class="card">
 <h2>${escapeHtml(title)}</h2>
 <span class="status">${escapeHtml(status)}</span>
 ${deliverableContent ? `<h3>Delivered work</h3><pre>${escapeHtml(deliverableContent)}</pre>` : ""}
+${depositUrl ? `<a class="btn" href="${escapeHtml(depositUrl)}" target="_blank" rel="noreferrer">Pay deposit to start</a>` : ""}
 ${invoiceUrl ? `<a class="btn" href="${escapeHtml(invoiceUrl)}" target="_blank" rel="noreferrer">View invoice</a>` : ""}
 </div>
 </body></html>`;
@@ -52,17 +53,22 @@ ${invoiceUrl ? `<a class="btn" href="${escapeHtml(invoiceUrl)}" target="_blank" 
 statusRouter.get("/:token", async (req, res) => {
   const job = await prisma.job.findUnique({
     where: { statusToken: req.params.token },
-    include: { deliverable: true, payment: true },
+    include: { deliverable: true, payments: true },
   });
   if (!job) return res.status(404).send("Not found");
+
+  const deposit = job.payments.find((p) => p.kind === "DEPOSIT");
+  const final = job.payments.find((p) => p.kind === "FINAL");
+  const depositPending = job.status === "ACCEPTED" && deposit && deposit.status !== "PAID";
 
   res.set("Content-Type", "text/html");
   res.send(
     renderPage({
       title: job.title,
-      status: CLIENT_FRIENDLY_STATUS[job.status] || "In progress",
+      status: depositPending ? "Awaiting deposit payment to start work" : CLIENT_FRIENDLY_STATUS[job.status] || "In progress",
       deliverableContent: ["DELIVERED", "AWAITING_PAYMENT", "PAID"].includes(job.status) ? job.deliverable?.content : null,
-      invoiceUrl: job.payment?.invoiceUrl,
+      depositUrl: deposit && deposit.status !== "PAID" ? deposit.invoiceUrl : null,
+      invoiceUrl: final?.invoiceUrl,
     })
   );
 });

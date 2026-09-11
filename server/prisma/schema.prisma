@@ -67,7 +67,7 @@ model Job {
 
   proposal     Proposal?
   deliverable  Deliverable?
-  payment      Payment?
+  payments     Payment[]
   agentRuns    AgentRun[]
 }
 
@@ -103,10 +103,20 @@ enum PaymentStatus {
   OVERDUE
 }
 
+// DEPOSIT exists only for first-time non-recurring OUTREACH/MANUAL clients
+// (no platform escrow, no track record — see pipelineAgent.js's deposit
+// gate); every other job goes straight to a single FINAL payment, same as
+// before this was added. At most one of each kind per job (@@unique).
+enum PaymentKind {
+  DEPOSIT
+  FINAL
+}
+
 model Payment {
   id                    String        @id @default(cuid())
   job                   Job           @relation(fields: [jobId], references: [id])
-  jobId                 String        @unique
+  jobId                 String
+  kind                  PaymentKind   @default(FINAL)
   provider              PaymentProvider
   amount                Float
   currency              String        @default("USD")
@@ -119,6 +129,8 @@ model Payment {
   clientEmail           String?
   testimonialRequestedAt DateTime?
   createdAt             DateTime      @default(now())
+
+  @@unique([jobId, kind])
 }
 
 model Deliverable {
@@ -152,6 +164,7 @@ enum AgentType {
   TESTIMONIAL
   LEADS
   CONTRACT
+  DIGEST
 }
 
 model AgentRun {

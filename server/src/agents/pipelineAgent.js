@@ -7,20 +7,26 @@ import { recordIncident } from "../services/incidents.js";
 
 const NEW_CLIENT_RISK_SOURCES = new Set(["OUTREACH", "MANUAL"]);
 
+function isRisky(job) {
+  return NEW_CLIENT_RISK_SOURCES.has(job.source) && !job.client?.isRecurring;
+}
+
 /**
  * The self-driving state machine: once a job is ACCEPTED, nothing further
  * needs a human. This sweep finds jobs sitting at each stage and pushes
- * them to the next one — Contract → Worker → Delivery/QA → Invoice — on
- * its own schedule (scheduler.js), independent of whatever triggered the
- * ACCEPTED status (Inbox Agent auto-detection, or a manual "mark
- * accepted" tap). Each called agent already records its own
- * Incident/retry on failure, so this loop just needs to keep moving and
- * never let one job's failure block the rest of the batch.
+ * them to the next one — Contract → Deposit (if required) → Worker →
+ * Delivery/QA → Final Invoice — on its own schedule (scheduler.js),
+ * independent of whatever triggered the ACCEPTED status (Inbox Agent
+ * auto-detection, or a manual "mark accepted" tap). Each called agent
+ * already records its own Incident/retry on failure, so this loop just
+ * needs to keep moving and never let one job's failure block the rest of
+ * the batch.
  */
 export async function advancePipeline() {
   let workerRuns = 0;
   let deliveryRuns = 0;
   let invoiceRuns = 0;
+  let depositInvoiceRuns = 0;
   let contractsSent = 0;
 
   // Sources without a platform-level agreement (Upwork/Freelancer/Guru all
@@ -40,47 +46,43 @@ export async function advancePipeline() {
     }
   }
 
-  // A first-time (non-recurring) outreach/manual client has no track
-  // record and no platform escrow behind them — flag it once as a
-  // deposit-before-work recommendation rather than silently doing full
-  // unpaid work for a stranger. This is advisory only (an Incident the
-  // owner sees and can act on with the existing manual invoice/worker
-  // buttons), not an automated payment gate — safer than adding a second
-  // payment-per-job state to the schema under time pressure.
-  const riskyAccepted = await prisma.job.findMany({
-    where: { status: "ACCEPTED", deliverable: null, source: { in: [...NEW_CLIENT_RISK_SOURCES] } },
-    include: { client: true },
+  // The deposit gate: a first-time (non-recurring) outreach/manual client
+  // has no track record and no platform escrow behind them. Rather than
+  // silently doing full unpaid work for a stranger, or just leaving an
+  // advisory note, this invoices a real DEPOSIT and Worker Agent is held
+  // back (see the isRisky() filter below) until it's actually PAID.
+  const acceptedCandidates = await prisma.job.findMany({
+    where: { status: "ACCEPTED", deliverable: null, category: { in: SUPPORTED_CATEGORIES } },
+    include: { client: true, payments: true, proposal: true },
   });
-  for (const job of riskyAccepted) {
-    if (job.client?.isRecurring) continue;
-    const alreadyFlagged = await prisma.incident.findFirst({
-      where: { source: "PIPELINE_DEPOSIT_RECOMMENDED", jobId: job.id },
-    });
-    if (alreadyFlagged) continue;
-    await recordIncident({
-      source: "PIPELINE_DEPOSIT_RECOMMENDED",
-      jobId: job.id,
-      message: `"${job.title}" is a first-time ${job.source.toLowerCase()} client with no payment track record — consider invoicing a deposit before Worker Agent runs (both are available from the Jobs tab).`,
-      maxRetries: 0,
-    });
+
+  for (const job of acceptedCandidates) {
+    if (!isRisky(job)) continue;
+    const deposit = job.payments.find((p) => p.kind === "DEPOSIT");
+    if (deposit) continue; // already invoiced (or paid) — nothing more to do here
+    try {
+      await invoiceJob(job.id, { kind: "DEPOSIT", clientEmail: job.applyEmail || undefined });
+      depositInvoiceRuns += 1;
+    } catch (err) {
+      console.error(`[pipeline] deposit invoice failed for job ${job.id} (incident recorded, will retry):`, err.message);
+    }
   }
 
   // Worker Agent's scope is whatever categories have a prompt in
-  // workerAgent.js (currently content + data) — filter here rather than
-  // let it throw every 10 minutes forever for categories it was never
-  // meant to handle. Also picks up revisions (needsRevision=true on an
-  // existing deliverable) — see workerAgent.js for how it uses the
-  // stored feedback instead of blindly regenerating.
-  const toWork = await prisma.job.findMany({
-    where: {
-      category: { in: SUPPORTED_CATEGORIES },
-      OR: [
-        { status: "ACCEPTED", deliverable: null },
-        { status: "IN_PROGRESS", deliverable: { needsRevision: true } },
-      ],
-    },
+  // workerAgent.js (currently content + data). A risky job only qualifies
+  // once its deposit is PAID; a trusted job (platform-sourced, or a
+  // recurring client) never needed one. Also picks up revisions
+  // (needsRevision=true on an existing deliverable) — see workerAgent.js
+  // for how it uses the stored feedback instead of blindly regenerating.
+  const freshWork = acceptedCandidates.filter((job) => {
+    if (!isRisky(job)) return true;
+    const deposit = job.payments.find((p) => p.kind === "DEPOSIT");
+    return deposit?.status === "PAID";
   });
-  for (const job of toWork) {
+  const revisionWork = await prisma.job.findMany({
+    where: { category: { in: SUPPORTED_CATEGORIES }, status: "IN_PROGRESS", deliverable: { needsRevision: true } },
+  });
+  for (const job of [...freshWork, ...revisionWork]) {
     try {
       await runWorkerAgent(job.id);
       workerRuns += 1;
@@ -126,16 +128,16 @@ export async function advancePipeline() {
   }
 
   const toInvoice = await prisma.job.findMany({
-    where: { status: "DELIVERED", payment: null },
+    where: { status: "DELIVERED", payments: { none: { kind: "FINAL" } } },
   });
   for (const job of toInvoice) {
     try {
-      await invoiceJob(job.id, { clientEmail: job.applyEmail || undefined });
+      await invoiceJob(job.id, { kind: "FINAL", clientEmail: job.applyEmail || undefined });
       invoiceRuns += 1;
     } catch (err) {
       console.error(`[pipeline] invoice failed for job ${job.id} (incident recorded, will retry):`, err.message);
     }
   }
 
-  return { workerRuns, deliveryRuns, invoiceRuns, contractsSent };
+  return { workerRuns, deliveryRuns, invoiceRuns, depositInvoiceRuns, contractsSent };
 }

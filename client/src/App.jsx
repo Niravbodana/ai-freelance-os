@@ -108,6 +108,9 @@ export default function App() {
             <a className="btn" href="/api/payments/export.csv" style={{ textDecoration: "none" }}>
               Export payments CSV
             </a>
+            <button className="btn" onClick={() => api.runDigest()}>
+              Send weekly digest now
+            </button>
           </div>
         </>
       )}
