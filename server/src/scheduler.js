@@ -8,7 +8,7 @@ import { retrySweep, recordAndEscalateNow } from "./services/incidents.js";
 
 /**
  * The 24x7 loop.
- * - Hunter Agent (discover → feasibility-gate → draft/auto-send) every 15 min.
+ * - Hunter Agent (discover → feasibility-gate → draft/auto-send) every 10 min.
  * - Inbox Agent (read client replies, detect accept/reject/counter) every 10 min.
  * - Pipeline Agent (ACCEPTED → Worker → Delivery → Invoice, unattended) every 10 min.
  * - Payment sweep (chase overdue invoices) every 6 hours.
@@ -21,7 +21,7 @@ import { retrySweep, recordAndEscalateNow } from "./services/incidents.js";
  * e.g. Upwork, which still needs the dashboard's manual accept/reject).
  */
 export function startScheduler() {
-  cron.schedule("*/15 * * * *", async () => {
+  cron.schedule("*/10 * * * *", async () => {
     try {
       await runHunterAgent();
     } catch (err) {
@@ -74,6 +74,6 @@ export function startScheduler() {
   });
 
   console.log(
-    "[scheduler] Hunter/Inbox/Pipeline every 10-15 min, payment sweep every 6h, incident retry sweep every 5 min, weekly digest Mondays 8am UTC"
+    "[scheduler] Hunter/Inbox/Pipeline every 10 min, payment sweep every 6h, incident retry sweep every 5 min, weekly digest Mondays 8am UTC"
   );
 }
