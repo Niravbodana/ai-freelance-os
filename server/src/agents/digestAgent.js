@@ -1,6 +1,30 @@
 import { prisma } from "../db/client.js";
 import { notifyOwner } from "../services/notify.js";
 import { recordIncident } from "../services/incidents.js";
+import { SUPPORTED_CATEGORIES } from "./workerAgent.js";
+
+const OPPORTUNITY_MIN_COUNT = 5;
+
+/**
+ * The safe version of "self-improve" — this never changes what the system
+ * claims it can deliver on its own (that stays a deliberate, human call,
+ * same as CAPABILITY_STATEMENT/SUPPORTED_CATEGORIES always have been).
+ * What it *can* do unsupervised is notice patterns and report them: which
+ * out-of-scope categories keep showing up in volume, worth a human
+ * deciding whether to build support for. Pure reporting, no action taken.
+ */
+async function scanGrowthOpportunities(weekAgo) {
+  const rejected = await prisma.job.groupBy({
+    by: ["category"],
+    where: { status: "NOT_FEASIBLE", createdAt: { gte: weekAgo }, category: { notIn: SUPPORTED_CATEGORIES } },
+    _count: { category: true },
+  });
+
+  return rejected
+    .filter((r) => r._count.category >= OPPORTUNITY_MIN_COUNT)
+    .sort((a, b) => b._count.category - a._count.category)
+    .map((r) => `- "${r.category}": ${r._count.category} jobs seen this week we currently skip — worth considering?`);
+}
 
 /**
  * Weekly Digest Agent — the "you don't have to check the dashboard" agent.
@@ -24,6 +48,8 @@ export async function sendWeeklyDigest() {
         prisma.payment.count({ where: { testimonialRequestedAt: { gte: weekAgo } } }),
       ]);
 
+    const opportunities = await scanGrowthOpportunities(weekAgo);
+
     const lines = [
       `Weekly summary (last 7 days):`,
       ``,
@@ -38,6 +64,15 @@ export async function sendWeeklyDigest() {
       ``,
       `Open the dashboard for details on any of the above.`,
     ];
+
+    if (opportunities.length > 0) {
+      lines.push(
+        ``,
+        `Growth opportunities (categories we're skipping in real volume):`,
+        ...opportunities,
+        `We only take on categories you've explicitly approved — this is FYI, not an automatic change.`
+      );
+    }
 
     await notifyOwner("Weekly summary", lines.join("\n"));
     await prisma.agentRun.update({ where: { id: run.id }, data: { status: "SUCCESS", finishedAt: new Date() } });
