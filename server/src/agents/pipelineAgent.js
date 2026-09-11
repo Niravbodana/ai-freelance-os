@@ -5,7 +5,15 @@ import { invoiceJob } from "./paymentAgent.js";
 import { sendContract } from "./contractAgent.js";
 import { recordIncident } from "../services/incidents.js";
 
-const NEW_CLIENT_RISK_SOURCES = new Set(["OUTREACH", "MANUAL"]);
+// UPWORK/FREELANCER/GURU carry their own platform escrow/ToS protecting
+// payment — those are excluded. Everything else (our own outreach, manual
+// entries, and REMOTE_BOARD job-board postings) has zero payment
+// protection behind it: a job-board client can receive full work and
+// simply never pay, with nothing but an email reminder as recourse. So
+// REMOTE_BOARD is treated exactly like OUTREACH/MANUAL here even though
+// it's platform-sourced — it's still a stranger with no track record and
+// no escrow.
+const NEW_CLIENT_RISK_SOURCES = new Set(["OUTREACH", "MANUAL", "REMOTE_BOARD"]);
 
 function isRisky(job) {
   return NEW_CLIENT_RISK_SOURCES.has(job.source) && !job.client?.isRecurring;
@@ -46,11 +54,13 @@ export async function advancePipeline() {
     }
   }
 
-  // The deposit gate: a first-time (non-recurring) outreach/manual client
-  // has no track record and no platform escrow behind them. Rather than
-  // silently doing full unpaid work for a stranger, or just leaving an
-  // advisory note, this invoices a real DEPOSIT and Worker Agent is held
-  // back (see the isRisky() filter below) until it's actually PAID.
+  // The deposit gate: a first-time (non-recurring) client from any
+  // no-escrow source (outreach, manual, or a REMOTE_BOARD job-board
+  // posting) has no track record and nothing forcing them to pay once
+  // work is delivered. Rather than silently doing full unpaid work for a
+  // stranger, or just leaving an advisory note, this invoices a real
+  // DEPOSIT and Worker Agent is held back (see the isRisky() filter below)
+  // until it's actually PAID.
   const acceptedCandidates = await prisma.job.findMany({
     where: { status: "ACCEPTED", deliverable: null, category: { in: SUPPORTED_CATEGORIES } },
     include: { client: true, payments: true, proposal: true },
