@@ -108,6 +108,65 @@ export async function arbeitnowAdapter() {
   }));
 }
 
+// Himalayas publishes a public, no-auth JSON feed explicitly meant for
+// external use (it's linked from their own site as "the Himalayas API").
+export async function himalayasAdapter() {
+  const res = await fetch("https://himalayas.app/jobs/api", {
+    headers: { "User-Agent": "ai-freelance-os (contact: " + (getConfig("OWNER_EMAIL") || "n/a") + ")" },
+  });
+  if (!res.ok) return [];
+  const data = await res.json();
+  const jobs = data?.jobs || [];
+  return jobs.map((job) => ({
+    source: "REMOTE_BOARD",
+    externalUrl: job.applicationLink || job.guid,
+    title: job.title,
+    description: stripHtml(job.description || job.excerpt || job.title),
+    budget: job.minSalary ? `${job.minSalary}-${job.maxSalary ?? ""} ${job.salaryPeriod ?? ""}`.trim() : null,
+    category: guessCategory([...(job.categories || []), job.title]),
+    applyEmail: extractEmail(job.description || ""),
+  }));
+}
+
+// Jobicy runs a public, no-auth JSON API (documented at jobicy.com/api) —
+// same no-signup, no-approval deal as the other board APIs here.
+export async function jobicyAdapter() {
+  const res = await fetch("https://jobicy.com/api/v2/remote-jobs?count=50", {
+    headers: { "User-Agent": "ai-freelance-os (contact: " + (getConfig("OWNER_EMAIL") || "n/a") + ")" },
+  });
+  if (!res.ok) return [];
+  const data = await res.json();
+  const jobs = data?.jobs || [];
+  return jobs.map((job) => ({
+    source: "REMOTE_BOARD",
+    externalUrl: job.url,
+    title: job.jobTitle,
+    description: stripHtml(job.jobDescription || job.jobExcerpt || job.jobTitle),
+    budget: job.annualSalaryMin ? `${job.annualSalaryMin}-${job.annualSalaryMax ?? ""}` : null,
+    category: guessCategory([...(job.jobIndustry || []), job.jobTitle]),
+    applyEmail: extractEmail(job.jobDescription || ""),
+  }));
+}
+
+// Working Nomads exposes a public, no-auth JSON feed at this same URL its
+// own site widget/RSS readers use — no signup, no key.
+export async function workingNomadsAdapter() {
+  const res = await fetch("https://www.workingnomads.com/api/exposed_jobs/", {
+    headers: { "User-Agent": "ai-freelance-os (contact: " + (getConfig("OWNER_EMAIL") || "n/a") + ")" },
+  });
+  if (!res.ok) return [];
+  const jobs = await res.json();
+  return (Array.isArray(jobs) ? jobs : []).map((job) => ({
+    source: "REMOTE_BOARD",
+    externalUrl: job.url,
+    title: job.title,
+    description: stripHtml(job.description || job.title),
+    budget: null,
+    category: guessCategory([job.category_name, ...(job.tags || []), job.title]),
+    applyEmail: extractEmail(job.description || ""),
+  }));
+}
+
 function parseRssItems(xml) {
   const items = [];
   const itemBlocks = xml.split("<item>").slice(1);

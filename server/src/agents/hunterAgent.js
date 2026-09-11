@@ -7,6 +7,9 @@ import {
   weWorkRemotelyAdapter,
   remotiveAdapter,
   arbeitnowAdapter,
+  himalayasAdapter,
+  jobicyAdapter,
+  workingNomadsAdapter,
 } from "./sources/remoteJobBoards.js";
 import { freelancerComAdapter } from "./sources/freelancerCom.js";
 import { guruComAdapter } from "./sources/guruCom.js";
@@ -42,6 +45,9 @@ registerJobSource(remoteOkAdapter);
 registerJobSource(weWorkRemotelyAdapter);
 registerJobSource(remotiveAdapter);
 registerJobSource(arbeitnowAdapter);
+registerJobSource(himalayasAdapter);
+registerJobSource(jobicyAdapter);
+registerJobSource(workingNomadsAdapter);
 // No-ops until FREELANCER_OAUTH_TOKEN / GURU_API_KEY are configured — see
 // each adapter's file for what's needed to activate it.
 registerJobSource(freelancerComAdapter);
