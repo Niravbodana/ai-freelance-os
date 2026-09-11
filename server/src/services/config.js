@@ -17,6 +17,13 @@ export const SETTINGS_MANIFEST = [
     label: "Public app URL (e.g. https://your-app.up.railway.app)",
     secret: false,
   },
+  {
+    key: "SYSTEM_PAUSED",
+    group: "General",
+    label: "Pause all agents (true/false) — the kill switch",
+    secret: false,
+    placeholder: "false",
+  },
   { key: "ANTHROPIC_API_KEY", group: "Claude API", label: "Anthropic API Key", secret: true, testable: true },
   { key: "CLAUDE_MONTHLY_BUDGET_USD", group: "Claude API", label: "Monthly budget (USD, optional)", secret: false },
 
@@ -67,6 +74,16 @@ export async function loadConfigCache() {
 export function getConfig(key) {
   if (cache[key] != null && cache[key] !== "") return cache[key];
   return process.env[key] || null;
+}
+
+/**
+ * The kill switch. Every cron job in scheduler.js checks this first —
+ * flipping it on stops all agents from doing anything new (in-flight work
+ * finishes, nothing new starts) without touching code or infra. Toggled
+ * from Admin Settings.
+ */
+export function isSystemPaused() {
+  return String(getConfig("SYSTEM_PAUSED") || "").toLowerCase() === "true";
 }
 
 export function configSource(key) {

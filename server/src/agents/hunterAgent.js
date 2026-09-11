@@ -1,3 +1,4 @@
+import crypto from "node:crypto";
 import { prisma } from "../db/client.js";
 import { checkFeasibility } from "./feasibilityAgent.js";
 import { draftProposal } from "./proposalAgent.js";
@@ -55,6 +56,38 @@ registerJobSource(freelancerComAdapter);
 registerJobSource(guruComAdapter);
 
 const REJECTED_JOB_TTL_MS = 5 * 60 * 1000;
+const DEDUPE_WINDOW_MS = 14 * 24 * 60 * 60 * 1000;
+
+/**
+ * A normalized fingerprint of title+description, so the same posting
+ * reappearing under a different externalUrl on a different board (very
+ * common — the same remote job gets cross-posted to RemoteOK, WWR,
+ * Himalayas, etc.) gets caught. Plain URL-equality dedup (below) misses
+ * this entirely since every board mints its own URL for the same job.
+ */
+function computeDedupeKey(job) {
+  const normalizedTitle = (job.title || "").toLowerCase().trim().replace(/\s+/g, " ");
+  const normalizedDesc = (job.description || "").toLowerCase().trim().slice(0, 300).replace(/\s+/g, " ");
+  return crypto.createHash("sha256").update(`${normalizedTitle}|${normalizedDesc}`).digest("hex");
+}
+
+// Common upfront-payment/equipment-fee scam patterns seen on public job
+// boards — a legitimate client never asks a freelancer to pay them (or a
+// third party) before or during work. Catching this before the
+// feasibility check costs zero Claude calls and stops a proposal ever
+// going out to what's very likely a scam.
+const SCAM_PATTERNS = [
+  /pay(?:ment)?\s+(?:a\s+)?(?:small\s+)?(?:processing|registration|training|starter|activation)\s+fee/i,
+  /purchase\s+(?:your\s+own\s+)?(?:equipment|software|starter\s+kit)\s+(?:before|to\s+start|to\s+begin)/i,
+  /send\s+(?:us\s+)?(?:a\s+)?(?:deposit|fee)\s+(?:via|through)\s+(?:western\s+union|moneygram|gift\s+card|bitcoin|crypto)/i,
+  /wire\s+transfer.{0,40}(?:before|prior to)\s+(?:starting|training)/i,
+  /(?:western\s+union|moneygram)\s+.{0,30}(?:fee|deposit|payment)/i,
+];
+
+function looksLikeScam(job) {
+  const text = `${job.title || ""} ${job.description || ""}`;
+  return SCAM_PATTERNS.some((re) => re.test(text));
+}
 
 /**
  * A NOT_FEASIBLE job is dead weight the moment it's rejected — it will
@@ -100,6 +133,21 @@ export async function runHunterAgent() {
           : null;
         if (exists) continue;
 
+        const dedupeKey = computeDedupeKey(job);
+        const crossPosted = await prisma.job.findFirst({
+          where: { dedupeKey, createdAt: { gte: new Date(Date.now() - DEDUPE_WINDOW_MS) } },
+        });
+        if (crossPosted) continue;
+
+        if (looksLikeScam(job)) {
+          // Never even create the job row — nothing to show, nothing to
+          // process, just a log line. Not worth a RejectionLog entry
+          // either (that's for legitimate-but-out-of-scope categories,
+          // not scams).
+          console.log(`[hunter] skipped likely scam posting: "${job.title}" (${job.source})`);
+          continue;
+        }
+
         // Deliberately no Client record yet — a job board posting with an
         // extractable email isn't a client relationship until we've
         // actually sent them a proposal. Attaching a Client at mere
@@ -118,6 +166,7 @@ export async function runHunterAgent() {
             category: job.category,
             applyEmail: job.applyEmail ?? null,
             externalMeta: job.meta ?? undefined,
+            dedupeKey,
             status: "DISCOVERED",
           },
         });

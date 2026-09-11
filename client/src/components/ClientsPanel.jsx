@@ -53,6 +53,8 @@ export default function ClientsPanel() {
 
   const totalReceived = clients.reduce((sum, c) => sum + c.financials.received, 0);
   const totalRemaining = clients.reduce((sum, c) => sum + c.financials.remaining, 0);
+  const totalAiCost = clients.reduce((sum, c) => sum + (c.financials.aiCost || 0), 0);
+  const totalProfit = totalReceived - totalAiCost;
 
   return (
     <div>
@@ -74,6 +76,12 @@ export default function ClientsPanel() {
         <div className={`tile${totalRemaining > 0 ? " alert" : ""}`}>
           <div className="tile-value">{money(totalRemaining)}</div>
           <div className="tile-label">Remaining / outstanding</div>
+        </div>
+        <div className="tile">
+          <div className="tile-value" style={{ color: totalProfit >= 0 ? "var(--accent-green)" : "var(--accent-red)" }}>
+            {money(totalProfit)}
+          </div>
+          <div className="tile-label">Real profit (received − AI cost, {money(totalAiCost)} spent)</div>
         </div>
       </div>
 
@@ -114,6 +122,12 @@ export default function ClientsPanel() {
                   <div style={{ fontSize: 11, color: "var(--text-dim)" }}>remaining</div>
                   <div style={{ color: client.financials.remaining > 0 ? "var(--accent-amber)" : "var(--text-dim)", fontSize: 13 }}>
                     {money(client.financials.remaining)}
+                  </div>
+                </div>
+                <div style={{ textAlign: "right" }}>
+                  <div style={{ fontSize: 11, color: "var(--text-dim)" }}>profit</div>
+                  <div style={{ color: client.financials.profit >= 0 ? "var(--accent-green)" : "var(--accent-red)", fontSize: 13 }}>
+                    {money(client.financials.profit)}
                   </div>
                 </div>
                 <span className="pill">{client.jobCount} job{client.jobCount === 1 ? "" : "s"}</span>

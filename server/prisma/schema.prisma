@@ -60,6 +60,11 @@ model Job {
   feasibilityNote String?
   applyEmail   String?
   externalMeta Json?
+  // A normalized title+description fingerprint (see hunterAgent.js's
+  // computeDedupeKey) — catches the same posting reappearing under a
+  // different externalUrl on a different board, which plain URL-equality
+  // dedup misses entirely with 8 overlapping job-board sources.
+  dedupeKey    String?
   contractSentAt DateTime?
   // A private, unguessable link clients use to check their own project's
   // status without needing a dashboard login — see routes/status.js.
@@ -69,6 +74,7 @@ model Job {
   createdAt    DateTime   @default(now())
   updatedAt    DateTime   @updatedAt
 
+  @@index([dedupeKey])
   proposal     Proposal?
   deliverable  Deliverable?
   payments     Payment[]

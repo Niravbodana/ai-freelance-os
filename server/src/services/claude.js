@@ -1,6 +1,7 @@
 import { fetchWithTimeout } from "./httpFetch.js";
 import { prisma } from "../db/client.js";
 import { getConfig } from "./config.js";
+import { notifyOwner } from "./notify.js";
 
 const API_URL = "https://api.anthropic.com/v1/messages";
 const ANTHROPIC_VERSION = "2023-06-01";
@@ -50,9 +51,44 @@ export function getRateLimitSnapshot() {
   return lastRateLimitSnapshot;
 }
 
+async function getMonthlySpend() {
+  const monthStart = new Date();
+  monthStart.setUTCDate(1);
+  monthStart.setUTCHours(0, 0, 0, 0);
+  const result = await prisma.usageLog.aggregate({
+    where: { createdAt: { gte: monthStart } },
+    _sum: { costUsd: true },
+  });
+  return result._sum.costUsd || 0;
+}
+
+// CLAUDE_MONTHLY_BUDGET_USD used to be display-only (shown in stats, never
+// enforced) — a bug or a spam wave of low-quality leads could run spend
+// unbounded. Tracks whether the 80%-of-budget warning already fired this
+// month so it's a one-time heads-up, not an email per API call.
+let lastBudgetWarningMonth = null;
+
 export async function askClaude(systemPrompt, userPrompt, maxTokens = 1024, meta = {}, options = {}) {
   const apiKey = getConfig("ANTHROPIC_API_KEY");
   if (!apiKey) throw new Error("ANTHROPIC_API_KEY is not set — configure it in Admin Settings");
+
+  const budget = Number(getConfig("CLAUDE_MONTHLY_BUDGET_USD")) || 0;
+  if (budget > 0) {
+    const spend = await getMonthlySpend();
+    if (spend >= budget) {
+      throw new Error(
+        `Monthly Claude budget of $${budget.toFixed(2)} already spent ($${spend.toFixed(2)}) — refusing new API calls until next month or a higher budget is set in Admin Settings.`
+      );
+    }
+    const monthKey = `${new Date().getUTCFullYear()}-${new Date().getUTCMonth()}`;
+    if (spend >= budget * 0.8 && lastBudgetWarningMonth !== monthKey) {
+      lastBudgetWarningMonth = monthKey;
+      notifyOwner(
+        "Claude API budget at 80%",
+        `Spent $${spend.toFixed(2)} of your $${budget.toFixed(2)} monthly budget so far. At 100% the system stops making new API calls (proposals, feasibility checks, work) until next month or you raise the budget.`
+      ).catch((err) => console.error("[claude] budget warning email failed:", err));
+    }
+  }
 
   const model = options.model || MODELS.GENERATE;
   const body = {

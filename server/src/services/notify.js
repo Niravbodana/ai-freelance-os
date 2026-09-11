@@ -35,6 +35,27 @@ export async function notifyOwner(subject, text) {
 }
 
 /**
+ * Same as notifyOwner but with a file attached — used for the weekly
+ * database backup export (see services/dbBackup.js). Owner's inbox becomes
+ * the off-site backup location, no cloud storage credentials needed.
+ */
+export async function notifyOwnerWithAttachment(subject, text, attachment) {
+  const t = getTransporter();
+  const to = getConfig("OWNER_EMAIL");
+  if (!t || !to) {
+    console.log(`[notify] (SMTP not configured, logging only) ${subject}: ${text}`);
+    return;
+  }
+  await t.sendMail({
+    from: getConfig("SMTP_FROM") || getConfig("SMTP_USER"),
+    to,
+    subject: `[AI Freelance OS] ${subject}`,
+    text,
+    attachments: [attachment],
+  });
+}
+
+/**
  * Sends the actual proposal to a client's application email — used only for
  * job posts that explicitly published an "apply by email" address (they
  * invited applications; this is a normal job application, not cold spam).

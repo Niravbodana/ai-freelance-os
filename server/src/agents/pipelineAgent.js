@@ -164,3 +164,36 @@ export async function advancePipeline() {
 
   return { workerRuns, deliveryRuns, invoiceRuns, depositInvoiceRuns, contractsSent };
 }
+
+const GHOST_THRESHOLD_DAYS = 10;
+
+/**
+ * A client who goes silent mid-project (accepted, maybe even a deposit
+ * paid, then nothing) doesn't trip any existing check — they haven't
+ * missed an invoice yet, so sweepOverduePayments never sees them, and
+ * there's no reply to classify since there IS no reply. This is the one
+ * sweep that notices the relationship itself has stalled, so the owner
+ * finds out instead of a job just sitting untouched forever.
+ */
+export async function sweepGhostedClients() {
+  const cutoff = new Date(Date.now() - GHOST_THRESHOLD_DAYS * 24 * 60 * 60 * 1000);
+  const stalled = await prisma.job.findMany({
+    where: { status: { in: ["ACCEPTED", "IN_PROGRESS"] }, updatedAt: { lt: cutoff } },
+  });
+
+  let flagged = 0;
+  for (const job of stalled) {
+    const alreadyFlagged = await prisma.incident.findFirst({
+      where: { source: "GHOSTED_CLIENT", jobId: job.id, status: { in: ["OPEN", "ESCALATED"] } },
+    });
+    if (alreadyFlagged) continue;
+    await recordIncident({
+      source: "GHOSTED_CLIENT",
+      jobId: job.id,
+      message: `"${job.title}" (${job.source}) has had no movement in ${GHOST_THRESHOLD_DAYS}+ days (status: ${job.status}) — client may have gone silent. Worth a manual follow-up or closing it out.`,
+      maxRetries: 0,
+    });
+    flagged += 1;
+  }
+  return { flagged };
+}

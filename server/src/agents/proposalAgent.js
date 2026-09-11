@@ -32,6 +32,14 @@ After the proposal, on a new line write "RATE: <your proposed rate as a short st
  */
 const ALWAYS_AUTO_SEND_SOURCES = new Set(["OUTREACH", "MANUAL"]);
 
+// A Freelancer.com auto-bid commits to a real number with no human in the
+// loop — a bad rate parse from Claude's output (or an unusually
+// high-budget job) shouldn't be able to turn into an unbounded real
+// financial commitment. Anything outside this range falls back to the
+// human-approval queue instead of auto-bidding blind.
+const MIN_AUTO_BID_USD = 5;
+const MAX_AUTO_BID_USD = 1000;
+
 function canAutoSend(job) {
   if (ALWAYS_AUTO_SEND_SOURCES.has(job.source)) return true;
   if (job.source === "REMOTE_BOARD" && job.applyEmail) return true;
@@ -84,16 +92,23 @@ export async function draftProposal(jobId) {
 
     if (autoSend && job.source === "FREELANCER") {
       const numericAmount = parseFloat(String(proposedRate).replace(/[^0-9.]/g, ""));
-      const result = await placeFreelancerBid({
-        projectId: job.externalMeta?.freelancerProjectId,
-        amount: numericAmount || undefined,
-        description: draftText,
-      });
-      if (!result.placed) {
-        // Real money-committing action failed — never silently claim it
-        // went out. Fall back to the human-approval queue instead.
+      if (!numericAmount || numericAmount < MIN_AUTO_BID_USD || numericAmount > MAX_AUTO_BID_USD) {
+        // Out of the sane range — don't let a bad rate parse (or a
+        // legitimately huge project) become a blind financial commitment.
         autoSend = false;
-        negotiationLog = `Auto-bid failed: ${result.reason}`;
+        negotiationLog = `Auto-bid skipped: proposed rate ($${numericAmount || "unparseable"}) is outside the auto-bid safety range ($${MIN_AUTO_BID_USD}-$${MAX_AUTO_BID_USD}) — needs manual review.`;
+      } else {
+        const result = await placeFreelancerBid({
+          projectId: job.externalMeta?.freelancerProjectId,
+          amount: numericAmount,
+          description: draftText,
+        });
+        if (!result.placed) {
+          // Real money-committing action failed — never silently claim it
+          // went out. Fall back to the human-approval queue instead.
+          autoSend = false;
+          negotiationLog = `Auto-bid failed: ${result.reason}`;
+        }
       }
     }
 

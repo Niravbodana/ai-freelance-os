@@ -5,6 +5,20 @@ import { processInbox } from "./agents/inboxAgent.js";
 import { advancePipeline } from "./agents/pipelineAgent.js";
 import { sendWeeklyDigest } from "./agents/digestAgent.js";
 import { retrySweep, recordAndEscalateNow } from "./services/incidents.js";
+import { isSystemPaused } from "./services/config.js";
+import { runDatabaseBackup } from "./services/dbBackup.js";
+import { sweepGhostedClients } from "./agents/pipelineAgent.js";
+
+// The kill switch: SYSTEM_PAUSED (Admin Settings) stops every agent from
+// starting new work. Cleanup/retry/backup/payment-chasing keep running —
+// pausing "new work" is the useful meaning of a kill switch, not silently
+// abandoning invoices already sent or incidents already open.
+function guarded(agentFn) {
+  return async () => {
+    if (isSystemPaused()) return;
+    await agentFn();
+  };
+}
 
 /**
  * The 24x7 loop.
@@ -21,31 +35,31 @@ import { retrySweep, recordAndEscalateNow } from "./services/incidents.js";
  * e.g. Upwork, which still needs the dashboard's manual accept/reject).
  */
 export function startScheduler() {
-  cron.schedule("*/10 * * * *", async () => {
+  cron.schedule("*/10 * * * *", guarded(async () => {
     try {
       await runHunterAgent();
     } catch (err) {
       console.error("[scheduler] hunter agent run failed:", err);
       await recordAndEscalateNow("HUNTER", err);
     }
-  });
+  }));
 
-  cron.schedule("*/10 * * * *", async () => {
+  cron.schedule("*/10 * * * *", guarded(async () => {
     try {
       await processInbox();
     } catch (err) {
       console.error("[scheduler] inbox agent run failed:", err);
     }
-  });
+  }));
 
-  cron.schedule("*/10 * * * *", async () => {
+  cron.schedule("*/10 * * * *", guarded(async () => {
     try {
       await advancePipeline();
     } catch (err) {
       console.error("[scheduler] pipeline sweep failed:", err);
       await recordAndEscalateNow("PIPELINE", err);
     }
-  });
+  }));
 
   cron.schedule("0 */6 * * *", async () => {
     try {
@@ -86,7 +100,32 @@ export function startScheduler() {
     }
   });
 
+  // Daily — a client who's gone quiet mid-project (after ACCEPTED, before
+  // PAID) doesn't get caught by anything else: they haven't missed an
+  // invoice yet, so sweepOverduePayments never sees them. This is the one
+  // sweep that notices the relationship itself has stalled.
+  cron.schedule("0 9 * * *", async () => {
+    try {
+      await sweepGhostedClients();
+    } catch (err) {
+      console.error("[scheduler] ghosted-client sweep failed:", err);
+    }
+  });
+
+  // Weekly DB backup — the encrypted Setting table already had a manual
+  // export/import; this covers the actual business data (jobs, clients,
+  // proposals, payments) that a DB wipe or bad migration would otherwise
+  // lose completely, with zero manual step. Runs regardless of the kill
+  // switch — a paused system's existing data still deserves backing up.
+  cron.schedule("0 7 * * 1", async () => {
+    try {
+      await runDatabaseBackup();
+    } catch (err) {
+      console.error("[scheduler] database backup failed:", err);
+    }
+  });
+
   console.log(
-    "[scheduler] Hunter/Inbox/Pipeline every 10 min, payment sweep every 6h, incident retry sweep every 5 min, weekly digest Mondays 8am UTC"
+    "[scheduler] Hunter/Inbox/Pipeline every 10 min (paused via SYSTEM_PAUSED if set), payment sweep every 6h, incident retry sweep every 5 min, ghosted-client sweep daily 9am UTC, weekly digest + DB backup Mondays"
   );
 }
