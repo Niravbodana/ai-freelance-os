@@ -89,6 +89,26 @@ function looksLikeScam(job) {
   return SCAM_PATTERNS.some((re) => re.test(text));
 }
 
+// A live test run (2026-09-11) showed the real problem with these boards:
+// most postings are full-time employment, not freelance work, and their
+// titles almost always say so explicitly ("... (Full-Time)", "Full-Time
+// Employment Position", W-2/PTO/benefits language) — see e.g. "Porkbun:
+// Live Technical Support Representative — Full-Time — $40,000/year +
+// Benefits". Each one still cost a real Claude feasibility call before
+// being correctly rejected. This is a free, zero-Claude-cost pre-filter
+// on the title alone (descriptions are too noisy/negation-prone to trust)
+// so a genuine freelance/contract/project posting is never at risk of a
+// false match — the moment "contract", "freelance", "project-based", or
+// "per hour"/"hourly" also appears in the title, it's treated as freelance
+// work regardless of the full-time signal.
+const FULL_TIME_TITLE_PATTERN = /\b(full[\s-]?time|permanent\s+position|w-?2\s+employee)\b/i;
+const FREELANCE_TITLE_OVERRIDE = /\b(contract|freelance|project[\s-]based|per\s+hour|hourly|gig)\b/i;
+
+function looksLikeFullTimeRole(job) {
+  const title = job.title || "";
+  return FULL_TIME_TITLE_PATTERN.test(title) && !FREELANCE_TITLE_OVERRIDE.test(title);
+}
+
 /**
  * A NOT_FEASIBLE job is dead weight the moment it's rejected — it will
  * never move again, and with 8 job-board sources now feeding in, the Jobs
@@ -145,6 +165,18 @@ export async function runHunterAgent() {
           // either (that's for legitimate-but-out-of-scope categories,
           // not scams).
           console.log(`[hunter] skipped likely scam posting: "${job.title}" (${job.source})`);
+          continue;
+        }
+
+        if (looksLikeFullTimeRole(job)) {
+          // Same reasoning as the scam filter: this is never something we
+          // could deliver as a freelance operation (it's an employment
+          // relationship, not a project), so there is nothing a Claude
+          // feasibility call would add — it would just spend money to
+          // reach the same NOT_FEASIBLE conclusion the title already
+          // makes obvious. Free job boards skew heavily toward full-time
+          // listings, so this materially cuts wasted API spend.
+          console.log(`[hunter] skipped full-time listing: "${job.title}" (${job.source})`);
           continue;
         }
 
