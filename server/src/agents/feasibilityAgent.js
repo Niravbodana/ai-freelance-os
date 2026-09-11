@@ -2,6 +2,7 @@ import { prisma } from "../db/client.js";
 import { askClaude, MODELS } from "../services/claude.js";
 import { notifications } from "../services/notify.js";
 import { recordIncident, registerRetryHandler } from "../services/incidents.js";
+import { SUPPORTED_CATEGORIES } from "./workerAgent.js";
 
 // What the system is actually allowed to say "yes" to. This is the single
 // source of truth for capability — extend it deliberately, category by
@@ -29,6 +30,21 @@ Be strict — when in doubt, say NO. Taking on work we can't deliver damages the
  */
 export async function checkFeasibility(jobId) {
   const job = await prisma.job.findUniqueOrThrow({ where: { id: jobId } });
+
+  // The category gate lives here, not just in Hunter Agent's discovery
+  // loop — the incident retry sweep (services/incidents.js) also calls
+  // checkFeasibility() directly for previously-failed jobs, bypassing any
+  // gate that only exists at discovery time. Checking it here covers both
+  // paths with one source of truth, and costs zero Claude calls for
+  // obviously out-of-scope categories either way.
+  if (!SUPPORTED_CATEGORIES.includes(job.category)) {
+    const note = `Category "${job.category}" is outside current scope (${SUPPORTED_CATEGORIES.join("/")} only) — skipped without an AI check.`;
+    await prisma.job.update({
+      where: { id: jobId },
+      data: { feasible: false, feasibilityNote: note, status: "NOT_FEASIBLE" },
+    });
+    return { feasible: false, note };
+  }
 
   const run = await prisma.agentRun.create({
     data: { agent: "FEASIBILITY", jobId, status: "RUNNING" },
