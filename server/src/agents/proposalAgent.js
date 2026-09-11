@@ -142,7 +142,28 @@ export async function draftProposal(jobId) {
 
 registerRetryHandler("PROPOSAL", draftProposal);
 
+/**
+ * Manual approval path — "Approve & send" in the dashboard (Jobs tab or the
+ * Proposals tab). This used to only update the database (approved: true,
+ * status: PROPOSAL_SENT) without ever actually emailing the client — a real
+ * bug: the dashboard said "sent" but nothing left the outbox unless the
+ * proposal had been auto-sent earlier. Now mirrors draftProposal()'s
+ * auto-send behavior: if the job has an apply-by email, the (possibly
+ * edited) proposal text is actually emailed before the status flips.
+ */
 export async function approveProposal(jobId, editedText) {
+  const job = await prisma.job.findUniqueOrThrow({ where: { id: jobId }, include: { proposal: true } });
+  const text = editedText || job.proposal?.editedText || job.proposal?.draftText;
+
+  // Send before touching the database: if this throws (e.g. the SMTP
+  // connection times out), the route's own try/catch returns a clear error
+  // and nothing here gets marked approved/sent — so the owner can just
+  // press the button again instead of the dashboard silently claiming a
+  // proposal went out when it didn't.
+  if (job.applyEmail) {
+    await sendProposalEmail({ to: job.applyEmail, subject: `Application: ${job.title}`, text });
+  }
+
   const proposal = await prisma.proposal.update({
     where: { jobId },
     data: { approved: true, approvedAt: new Date(), editedText: editedText ?? undefined, sentAt: new Date() },

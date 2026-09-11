@@ -27,6 +27,18 @@ export async function fetchNewEmails() {
     logger: false,
   });
 
+  // ImapFlow emits an 'error' event on socket/connection problems (a slow
+  // network hiccup, a timeout) — an EventEmitter 'error' with no listener
+  // is fatal in Node, crashing straight past every try/catch here and
+  // showing up as a top-level PROCESS_UNCAUGHT_EXCEPTION "Socket timeout"
+  // incident that reappears no matter how many times it's marked resolved,
+  // since it's a brand new crash each time, not the same stuck one. This
+  // listener turns it into a normal, recoverable failure instead: the
+  // client.connect()/fetch() call below still rejects normally and gets
+  // caught by processInbox()'s own try/catch (source: "INBOX"), which is
+  // already in the retry queue like every other agent failure.
+  client.on("error", (err) => console.error("[inbox] IMAP client error (recovered):", err.message));
+
   const emails = [];
 
   await client.connect();
