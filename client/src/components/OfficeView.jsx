@@ -1,27 +1,48 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { api } from "../api/client.js";
 
 const AUTO_REFRESH_MS = 8_000;
+// How often idle employees rotate to a different break-room spot — long
+// enough that a refresh doesn't feel jittery, short enough that the office
+// visibly isn't frozen if you watch it for a minute.
+const WANDER_ROTATE_MS = 60_000;
 
 // One employee per agent — face tone, hair, shirt color, desk position.
 // This is a literal floor plan of the pipeline: what you'd see if you
 // walked into the office and looked over everyone's shoulder.
 const AGENT_META = {
-  HUNTER: { name: "Hunter", role: "Job Scout", shirt: "#3b82f6", skin: "#e0ac69", hair: "#3a2a1d" },
-  FEASIBILITY: { name: "Vetter", role: "Feasibility Checker", shirt: "#8b5cf6", skin: "#f1c27d", hair: "#111111" },
-  PROPOSAL: { name: "Pitch", role: "Proposal Writer", shirt: "#f59e0b", skin: "#c68642", hair: "#2b1b0e" },
-  WORKER: { name: "Crafter", role: "Work Builder", shirt: "#10b981", skin: "#ffdbac", hair: "#6b3b1f" },
-  DELIVERY: { name: "Inspector", role: "QA & Delivery", shirt: "#ec4899", skin: "#e0ac69", hair: "#1a1a1a" },
-  PAYMENT: { name: "Cashier", role: "Invoicing", shirt: "#eab308", skin: "#f1c27d", hair: "#4a2c15" },
-  INBOX: { name: "Reception", role: "Inbox Reader", shirt: "#06b6d4", skin: "#ffdbac", hair: "#2b1b0e" },
-  PIPELINE: { name: "Manager", role: "Pipeline Coordinator", shirt: "#f97316", skin: "#c68642", hair: "#111111" },
-  TESTIMONIAL: { name: "Scout", role: "Testimonials", shirt: "#facc15", skin: "#e0ac69", hair: "#3a2a1d" },
-  LEADS: { name: "Prospector", role: "Leads Importer", shirt: "#f43f5e", skin: "#ffdbac", hair: "#1a1a1a" },
-  CONTRACT: { name: "Notary", role: "Contract Drafter", shirt: "#14b8a6", skin: "#f1c27d", hair: "#6b3b1f" },
-  DIGEST: { name: "Reporter", role: "Weekly Digest", shirt: "#6366f1", skin: "#c68642", hair: "#2b1b0e" },
+  HUNTER: { name: "Hunter", role: "Job Scout", shirt: "#3b82f6", skin: "#e0ac69", hair: "#3a2a1d", style: "short" },
+  FEASIBILITY: { name: "Vetter", role: "Feasibility Checker", shirt: "#8b5cf6", skin: "#f1c27d", hair: "#111111", style: "long" },
+  PROPOSAL: { name: "Pitch", role: "Proposal Writer", shirt: "#f59e0b", skin: "#c68642", hair: "#2b1b0e", style: "short" },
+  WORKER: { name: "Crafter", role: "Work Builder", shirt: "#10b981", skin: "#ffdbac", hair: "#6b3b1f", style: "long" },
+  DELIVERY: { name: "Inspector", role: "QA & Delivery", shirt: "#ec4899", skin: "#e0ac69", hair: "#1a1a1a", style: "long" },
+  PAYMENT: { name: "Cashier", role: "Invoicing", shirt: "#eab308", skin: "#f1c27d", hair: "#4a2c15", style: "short" },
+  INBOX: { name: "Reception", role: "Inbox Reader", shirt: "#06b6d4", skin: "#ffdbac", hair: "#2b1b0e", style: "long" },
+  PIPELINE: { name: "Manager", role: "Pipeline Coordinator", shirt: "#f97316", skin: "#c68642", hair: "#111111", style: "short" },
+  TESTIMONIAL: { name: "Scout", role: "Testimonials", shirt: "#facc15", skin: "#e0ac69", hair: "#3a2a1d", style: "long" },
+  LEADS: { name: "Prospector", role: "Leads Importer", shirt: "#f43f5e", skin: "#ffdbac", hair: "#1a1a1a", style: "short" },
+  CONTRACT: { name: "Notary", role: "Contract Drafter", shirt: "#14b8a6", skin: "#f1c27d", hair: "#6b3b1f", style: "long" },
+  DIGEST: { name: "Reporter", role: "Weekly Digest", shirt: "#6366f1", skin: "#c68642", hair: "#2b1b0e", style: "short" },
 };
 
 const AGENT_ORDER = ["HUNTER", "FEASIBILITY", "PROPOSAL", "WORKER", "DELIVERY", "PIPELINE", "INBOX", "PAYMENT", "CONTRACT", "TESTIMONIAL", "LEADS", "DIGEST"];
+
+// The break-room spots an idle employee can be found at — nobody who isn't
+// actively on a task sits frozen at an empty desk. Each has its own short
+// "what they're doing here" caption so it doesn't just look like people
+// standing around.
+const BREAK_SPOTS = [
+  { id: "cafe", label: "Cafe", caption: "Coffee break" },
+  { id: "smoking", label: "Smoking Zone", caption: "Quick smoke" },
+  { id: "restroom", label: "Restroom", caption: "Away from desk" },
+  { id: "cooler", label: "Water Cooler", caption: "Filling up" },
+];
+
+function hashStr(str) {
+  let h = 0;
+  for (let i = 0; i < str.length; i++) h = (h * 31 + str.charCodeAt(i)) | 0;
+  return Math.abs(h);
+}
 
 function timeAgo(dateStr) {
   if (!dateStr) return null;
@@ -51,12 +72,12 @@ function statusOf(run) {
   return "idle";
 }
 
-const STATUS_LABEL = { idle: "At desk", working: "Working", done: "Done", error: "Stuck" };
+const STATUS_LABEL = { idle: "Away", working: "Working", done: "Done", error: "Stuck" };
 
-function Character({ meta, status, isCeo }) {
+function Character({ meta, status, isCeo, walking, arriving }) {
   return (
-    <div className={`char status-${status}`}>
-      <div className="char-hair" style={{ background: meta.hair }} />
+    <div className={`char status-${status}${walking ? " walking" : ""}${arriving ? " arriving" : ""}`}>
+      <div className={`char-hair hair-${meta.style || "short"}`} style={{ background: meta.hair }} />
       <div className="char-head" style={{ background: meta.skin }}>
         <div className="char-eyes">
           <span /> <span />
@@ -66,28 +87,41 @@ function Character({ meta, status, isCeo }) {
       <div className="char-body" style={{ background: meta.shirt }}>
         {isCeo && <div className="char-tie" />}
       </div>
+      {walking && <div className="char-shadow" />}
     </div>
   );
 }
 
-function Desk({ agentType, run }) {
+function Desk({ agentType, run, roaming, arriving }) {
   const meta = AGENT_META[agentType];
   const status = statusOf(run);
+  const atDesk = status !== "idle";
+
   return (
-    <div className="cubicle">
+    <div className={`cubicle${atDesk ? "" : " cubicle-empty"}`}>
       {status === "error" && <div className="alert-badge">!</div>}
-      <div className="speech-bubble">{describeRun(run)}</div>
-      <Character meta={meta} status={status} />
+      {atDesk ? (
+        <>
+          <div className="speech-bubble">{describeRun(run)}</div>
+          <Character meta={meta} status={status} arriving={arriving} />
+        </>
+      ) : (
+        <div className="speech-bubble away-bubble">
+          {roaming ? `${roaming.caption} · ${roaming.label}` : "Away from desk"}
+        </div>
+      )}
       <div className="monitor">
         <div className={`screen status-${status}`}>
           {status === "working" && <span className="screen-cursor" />}
           {status === "done" && <span className="screen-icon">✓</span>}
           {status === "error" && <span className="screen-icon">✕</span>}
+          {status === "idle" && <span className="screen-sleep">Zz</span>}
         </div>
         <div className="monitor-stand" />
       </div>
       <div className="desk-top" />
       <div className="desk-front" />
+      {!atDesk && <div className="empty-chair" />}
       <div className="nameplate">
         <strong>{meta.name}</strong>
         <span>{meta.role}</span>
@@ -100,12 +134,56 @@ function Desk({ agentType, run }) {
   );
 }
 
+function BreakRoom({ occupants }) {
+  return (
+    <div className="break-room">
+      <div className="break-spot cafe-spot">
+        <div className="cafe-counter" />
+        <div className="coffee-machine" />
+        <div className="snack-tray" />
+        <div className="break-spot-label">Cafe</div>
+        <div className="break-occupants">
+          {(occupants.cafe || []).map((agentType) => (
+            <Character key={agentType} meta={AGENT_META[agentType]} status="idle" walking />
+          ))}
+        </div>
+      </div>
+
+      <div className="break-spot smoking-spot">
+        <div className="smoking-post" />
+        <div className="ashtray" />
+        <div className="break-spot-label">Smoking Zone</div>
+        <div className="break-occupants">
+          {(occupants.smoking || []).map((agentType) => (
+            <Character key={agentType} meta={AGENT_META[agentType]} status="idle" walking />
+          ))}
+        </div>
+      </div>
+
+      <div className="break-spot restroom-spot">
+        <div className="restroom-door">
+          <span>WC</span>
+        </div>
+        <div className="break-spot-label">Restroom</div>
+        <div className="break-occupants">
+          {(occupants.restroom || []).map((agentType) => (
+            <Character key={agentType} meta={AGENT_META[agentType]} status="idle" walking />
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function OfficeView() {
   const [runs, setRuns] = useState([]);
   const [incidents, setIncidents] = useState([]);
   const [stats, setStats] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
+  const [wanderTick, setWanderTick] = useState(0);
+  const [arrivingSet, setArrivingSet] = useState(new Set());
+  const prevStatusRef = useRef({});
 
   async function load() {
     try {
@@ -128,7 +206,13 @@ export default function OfficeView() {
   useEffect(() => {
     load();
     const interval = setInterval(load, AUTO_REFRESH_MS);
-    return () => clearInterval(interval);
+    // Idle employees rotate break spots on a slower clock than the data
+    // refresh, so the office still visibly changes even between polls.
+    const wander = setInterval(() => setWanderTick((t) => t + 1), WANDER_ROTATE_MS);
+    return () => {
+      clearInterval(interval);
+      clearInterval(wander);
+    };
   }, []);
 
   const latestByAgent = {};
@@ -137,6 +221,37 @@ export default function OfficeView() {
       latestByAgent[run.agent] = run;
     }
   }
+
+  // Anyone who just went from "away" to "working/done/error" gets a quick
+  // run-to-desk animation instead of silently teleporting into their chair
+  // — this is the "they see work come in and rush to their desk" behavior.
+  useEffect(() => {
+    const justArrived = new Set();
+    for (const agentType of AGENT_ORDER) {
+      const nowStatus = statusOf(latestByAgent[agentType]);
+      const wasStatus = prevStatusRef.current[agentType];
+      if (wasStatus === "idle" && nowStatus !== "idle") justArrived.add(agentType);
+      prevStatusRef.current[agentType] = nowStatus;
+    }
+    if (justArrived.size > 0) {
+      setArrivingSet(justArrived);
+      const t = setTimeout(() => setArrivingSet(new Set()), 650);
+      return () => clearTimeout(t);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [runs]);
+
+  const idleAgents = AGENT_ORDER.filter((a) => statusOf(latestByAgent[a]) === "idle");
+  const occupants = { cafe: [], smoking: [], restroom: [] };
+  const roamingByAgent = {};
+  idleAgents.forEach((agentType, i) => {
+    // Deterministic-but-rotating placement: which spot changes every
+    // WANDER_ROTATE_MS (wanderTick), and is spread out per-agent (hash) so
+    // everyone doesn't clump in the same corner at once.
+    const spot = BREAK_SPOTS[(hashStr(agentType) + wanderTick + i) % BREAK_SPOTS.length];
+    roamingByAgent[agentType] = spot;
+    if (spot.id !== "cooler") occupants[spot.id]?.push(agentType);
+  });
 
   const stuckAgents = AGENT_ORDER.filter((a) => statusOf(latestByAgent[a]) === "error").map((a) => AGENT_META[a].name);
   const needsApproval = stats?.pendingApprovalCount || 0;
@@ -171,11 +286,13 @@ export default function OfficeView() {
       <div className={`ceo-office${ceoAlert ? " alert" : ""}`}>
         <div className="ceo-plaque">CEO Office</div>
         <div className="ceo-plant" />
-        <Character meta={{ shirt: "#1e293b", skin: "#e0ac69", hair: "#111111" }} status={ceoAlert ? "error" : "done"} isCeo />
+        <Character meta={{ shirt: "#1e293b", skin: "#e0ac69", hair: "#111111", style: "short" }} status={ceoAlert ? "error" : "done"} isCeo />
         <div className="ceo-desk-top" />
         <div className="ceo-desk-front" />
         <div className={`ceo-speech${ceoAlert ? " alert" : ""}`}>{ceoMessage}</div>
       </div>
+
+      <BreakRoom occupants={occupants} />
 
       <div className="office-floor">
         <div className="rug" />
@@ -184,11 +301,20 @@ export default function OfficeView() {
         <div className="water-cooler">
           <div className="cooler-jug" />
           <div className="cooler-base" />
+          {(idleAgents.filter((a) => roamingByAgent[a]?.id === "cooler")).map((agentType) => (
+            <Character key={agentType} meta={AGENT_META[agentType]} status="idle" walking />
+          ))}
         </div>
 
         <div className="desks-grid">
           {AGENT_ORDER.map((agentType) => (
-            <Desk key={agentType} agentType={agentType} run={latestByAgent[agentType]} />
+            <Desk
+              key={agentType}
+              agentType={agentType}
+              run={latestByAgent[agentType]}
+              roaming={roamingByAgent[agentType]}
+              arriving={arrivingSet.has(agentType)}
+            />
           ))}
         </div>
       </div>
