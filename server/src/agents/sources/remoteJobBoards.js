@@ -13,9 +13,11 @@ export async function remoteOkAdapter() {
   });
   if (!res.ok) return [];
   const data = await res.json();
+  // No artificial cap — the API itself already returns ~100 listings max
+  // per call, and a smaller slice here was silently throwing away most of
+  // that pool every cycle for no reason.
   return data
     .filter((item) => item && item.id && item.position)
-    .slice(0, 30)
     .map((item) => ({
       source: "REMOTE_BOARD",
       externalUrl: item.url || `https://remoteok.com/remote-jobs/${item.id}`,
