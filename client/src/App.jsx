@@ -9,12 +9,13 @@ import ActivityFeed from "./components/ActivityFeed.jsx";
 import AdminSettings from "./components/AdminSettings.jsx";
 import LeadsImport from "./components/LeadsImport.jsx";
 import ClientsPanel from "./components/ClientsPanel.jsx";
+import OfficeView from "./components/OfficeView.jsx";
 
 const AUTO_REFRESH_MS = 30_000;
-const TABS = ["Command Centre", "Jobs", "Clients", "Admin Settings"];
+const TABS = ["Office", "Command Centre", "Jobs", "Clients", "Admin Settings"];
 
 export default function App() {
-  const [tab, setTab] = useState("Command Centre");
+  const [tab, setTab] = useState("Office");
   const [jobs, setJobs] = useState([]);
   const [stats, setStats] = useState(null);
   const [incidents, setIncidents] = useState([]);
@@ -86,6 +87,8 @@ export default function App() {
       </div>
 
       {error && <p style={{ color: "var(--accent-red)" }}>{error}</p>}
+
+      {tab === "Office" && <OfficeView />}
 
       {tab === "Command Centre" && (
         <>
