@@ -50,6 +50,20 @@
   align-items: center;
   gap: 4px;
   filter: drop-shadow(0 2px 4px rgba(0, 0, 0, 0.18));
+  /* This is the real movement: an idle agent's `left`/`top` change (see
+     OfficeView.jsx — their pin gets reassigned to a break-spot's
+     coordinates), and animating those two properties is what makes the
+     pin visibly walk across the floor plate instead of jumping there. */
+  transition: left 2.4s ease-in-out, top 2.4s ease-in-out;
+}
+
+.office-pin.roaming .office-pin-dot {
+  animation: office-pin-bob 1.4s ease-in-out infinite;
+}
+
+@keyframes office-pin-bob {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-2px); }
 }
 
 .office-pin-dot {

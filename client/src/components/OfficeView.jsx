@@ -57,6 +57,8 @@ const STATIONS = [
   { id: "reporter", kind: "desk", label: "Collaboration", agent: "DIGEST", x: 82.4, y: 51.2 },
 ];
 
+const STATION_BY_ID = Object.fromEntries(STATIONS.map((s) => [s.id, s]));
+
 const BREAK_SPOTS = [
   { id: "pantry", label: "Pantry", caption: "Coffee break" },
   { id: "discussion", label: "Discussion", caption: "On the sofa" },
@@ -64,6 +66,15 @@ const BREAK_SPOTS = [
   { id: "cooler", label: "Water Cooler", caption: "Filling up" },
   { id: "meeting", label: "Meeting Room", caption: "In a huddle" },
 ];
+
+// A small per-agent offset (in % of the floor plate) so two idle agents
+// sent to the same break spot don't render as one pin stacked on another —
+// hashed from the agent name so it's stable between refreshes instead of
+// jumping around every 8s poll.
+function roamOffset(agentType) {
+  const h = hashStr(agentType);
+  return { dx: ((h % 7) - 3) * 1.1, dy: (((h >> 3) % 7) - 3) * 1.1 };
+}
 
 const STATUS_LABEL = { idle: "Idle", working: "Working", done: "Done", error: "Stuck" };
 
@@ -101,7 +112,7 @@ function statusOf(run) {
   return "idle";
 }
 
-function StationPin({ station, run, selected, onSelect }) {
+function StationPin({ station, run, selected, onSelect, pos, roaming }) {
   const agent = station.agent;
   const meta = agent ? AGENT_META[agent] : null;
   const status = agent ? statusOf(run) : "idle";
@@ -110,8 +121,8 @@ function StationPin({ station, run, selected, onSelect }) {
   return (
     <button
       type="button"
-      className={`office-pin kind-${station.kind} status-${status}${selected ? " selected" : ""}${station.founder ? " founder-pin" : ""}`}
-      style={{ left: `${station.x}%`, top: `${station.y}%` }}
+      className={`office-pin kind-${station.kind} status-${status}${selected ? " selected" : ""}${station.founder ? " founder-pin" : ""}${roaming ? " roaming" : ""}`}
+      style={{ left: `${pos.x}%`, top: `${pos.y}%` }}
       onClick={() => onSelect(station.id)}
       aria-label={title}
     >
@@ -119,7 +130,7 @@ function StationPin({ station, run, selected, onSelect }) {
       <span className="office-pin-dot" />
       <span className="office-pin-label">
         <strong>{meta ? meta.name : station.label}</strong>
-        <em>{STATUS_LABEL[status]}</em>
+        <em>{roaming ? roaming.caption : STATUS_LABEL[status]}</em>
       </span>
     </button>
   );
@@ -206,15 +217,31 @@ export default function OfficeView() {
           className="office-plate"
         />
 
-        {STATIONS.filter((station) => station.agent || station.founder).map((station) => (
-          <StationPin
-            key={station.id}
-            station={station}
-            run={station.agent ? latestByAgent[station.agent] : null}
-            selected={selectedId === station.id}
-            onSelect={setSelectedId}
-          />
-        ))}
+        {STATIONS.filter((station) => station.agent || station.founder).map((station) => {
+          // The actual "real movement" bit: an idle agent's pin walks from
+          // their desk to whichever break spot they were assigned this
+          // tick (Pantry, Lounge, Water Cooler, ...) instead of sitting
+          // frozen at an empty desk — office.css puts a CSS transition on
+          // left/top so this reads as the pin physically crossing the
+          // floor plate, not teleporting.
+          const roam = station.agent ? roamingByAgent[station.agent] : null;
+          const target = roam ? STATION_BY_ID[roam.id] : null;
+          const offset = roam ? roamOffset(station.agent) : { dx: 0, dy: 0 };
+          const pos = target
+            ? { x: target.x + offset.dx, y: target.y + offset.dy }
+            : { x: station.x, y: station.y };
+          return (
+            <StationPin
+              key={station.id}
+              station={station}
+              run={station.agent ? latestByAgent[station.agent] : null}
+              selected={selectedId === station.id}
+              onSelect={setSelectedId}
+              pos={pos}
+              roaming={roam}
+            />
+          );
+        })}
 
         <div className={`office-ceo-bubble${ceoAlert ? " alert" : ""}`}>
           <span className="office-ceo-kicker">Founder</span>
