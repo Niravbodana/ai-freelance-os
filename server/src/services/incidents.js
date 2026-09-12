@@ -45,7 +45,33 @@ export async function recordAndEscalateNow(source, err) {
 
 const RETRY_BATCH_LIMIT = 20;
 
+/**
+ * Incidents that already escalated to the owner before this orphan check
+ * existed (or before this sweep gets to them) stay ESCALATED forever
+ * otherwise — retrySweep() below only looks at OPEN ones. Same fix, same
+ * reasoning, just covering the ones already stuck in the "needs you" list.
+ */
+async function resolveOrphanedEscalations() {
+  const escalated = await prisma.incident.findMany({
+    where: { status: "ESCALATED", jobId: { not: null } },
+    select: { id: true, jobId: true },
+  });
+  let resolved = 0;
+  for (const incident of escalated) {
+    const jobStillExists = await prisma.job.findUnique({ where: { id: incident.jobId }, select: { id: true } });
+    if (jobStillExists) continue;
+    await prisma.incident.update({
+      where: { id: incident.id },
+      data: { status: "RESOLVED", message: "Job no longer exists (cleaned up) — nothing to retry." },
+    });
+    resolved += 1;
+  }
+  return resolved;
+}
+
 export async function retrySweep() {
+  await resolveOrphanedEscalations();
+
   const incidents = await prisma.incident.findMany({
     where: { status: "OPEN" },
     orderBy: { createdAt: "asc" },
@@ -58,6 +84,24 @@ export async function retrySweep() {
 
   for (const incident of incidents) {
     const handler = incident.jobId ? retryHandlers[incident.source] : null;
+
+    // A job-keyed incident whose job has since been deleted (e.g. the
+    // rejected-job cleanup TTL beat this incident to the front of the
+    // retry queue) has nothing left to retry — the owner can't act on it
+    // either, since there's no job to look at. Resolving it here instead
+    // of escalating avoids a real, live "needs you" pile-up ("No Job
+    // found", retried 3x) for jobs that no longer exist.
+    if (incident.jobId) {
+      const jobStillExists = await prisma.job.findUnique({ where: { id: incident.jobId }, select: { id: true } });
+      if (!jobStillExists) {
+        await prisma.incident.update({
+          where: { id: incident.id },
+          data: { status: "RESOLVED", message: "Job no longer exists (cleaned up) — nothing to retry." },
+        });
+        resolved += 1;
+        continue;
+      }
+    }
 
     if (incident.retryCount >= incident.maxRetries || !handler) {
       await escalate(incident);
