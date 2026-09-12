@@ -1,5 +1,7 @@
 # ai-freelance-os
 
+The live product is on **`main`**. Office tab uses the isometric floor plan in `client/public/office-floor.jpg`. Next-agent notes: `CLAUDE.md`.
+
 An AI-run freelance operation: agents find jobs, check whether we can
 actually deliver them, draft/negotiate proposals, do the work, QA it,
 invoice, and chase payment — running 24x7, with a human approval tap only
@@ -333,7 +335,7 @@ just log to the console instead of failing silently.
 ## Stack
 
 - **Backend**: Node/Express + PostgreSQL via Prisma (`server/`)
-- **Frontend**: React + Vite — a dark HUD-style command centre (`client/`)
+- **Frontend**: React + Vite — dark HUD command centre plus an isometric Office floor (`client/`)
 - **AI**: Claude (Anthropic API) — Sonnet 5 for drafting, Haiku 4.5 for classification (see Cost optimization)
 - **Payments**: Stripe (international) + Razorpay (INR/UPI)
 - **Notifications**: Email (SMTP via nodemailer)
