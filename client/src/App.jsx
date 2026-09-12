@@ -56,7 +56,7 @@ export default function App() {
   const needsAttention = (stats?.pendingApprovalCount || 0) + (stats?.incidents?.escalated || 0);
 
   return (
-    <div className="hud-shell">
+    <div className={`hud-shell${tab === "Office" ? " hud-shell-wide" : ""}`}>
       <div className="hud-header">
         <div>
           <h1 className="hud-title">AI Freelance OS</h1>

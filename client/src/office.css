@@ -1,0 +1,352 @@
+/* Isometric office floor — matches the founder-provided floor plan. */
+
+.office-room {
+  --ink: #2b2f36;
+  --ink-dim: #6b7280;
+  background: #f4f1ea;
+  border-radius: 16px;
+  overflow: hidden;
+  color: var(--ink);
+  font-family: "Segoe UI", system-ui, sans-serif;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+}
+
+.office-banner {
+  margin: 0;
+  padding: 10px 16px;
+  font-size: 12px;
+  color: #6b7280;
+  background: #fffdf8;
+}
+
+.office-banner-error {
+  color: #991b1b;
+  background: #fef2f2;
+}
+
+.office-stage {
+  position: relative;
+  width: 100%;
+  background: #eef3e8;
+}
+
+.office-plate {
+  display: block;
+  width: 100%;
+  height: auto;
+  vertical-align: middle;
+}
+
+.office-pin {
+  position: absolute;
+  transform: translate(-50%, -50%);
+  border: 0;
+  background: transparent;
+  padding: 0;
+  cursor: pointer;
+  z-index: 3;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  filter: drop-shadow(0 2px 4px rgba(0, 0, 0, 0.18));
+}
+
+.office-pin-dot {
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: #ffffff;
+  border: 3px solid #94a3b8;
+  box-shadow: 0 0 0 3px rgba(255, 255, 255, 0.7);
+}
+
+.office-pin.status-working .office-pin-dot {
+  border-color: #2563eb;
+  box-shadow: 0 0 0 4px rgba(37, 99, 235, 0.28);
+  animation: office-pulse 1.2s ease-in-out infinite;
+}
+
+.office-pin.status-done .office-pin-dot {
+  border-color: #16a34a;
+  box-shadow: 0 0 0 4px rgba(22, 163, 74, 0.22);
+}
+
+.office-pin.status-error .office-pin-dot {
+  border-color: #dc2626;
+  box-shadow: 0 0 0 4px rgba(220, 38, 38, 0.3);
+}
+
+.office-pin.status-idle .office-pin-dot {
+  border-color: #cbd5e1;
+}
+
+.office-pin.selected .office-pin-dot {
+  width: 20px;
+  height: 20px;
+  border-color: #0f172a;
+}
+
+.office-pin-label {
+  background: rgba(255, 255, 255, 0.94);
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  padding: 2px 7px 3px;
+  line-height: 1.2;
+  pointer-events: none;
+  white-space: nowrap;
+  opacity: 0;
+  transform: translateY(4px);
+  transition: opacity 0.15s, transform 0.15s;
+}
+
+.office-pin:hover .office-pin-label,
+.office-pin.selected .office-pin-label,
+.office-pin.status-working .office-pin-label,
+.office-pin.status-error .office-pin-label {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+.office-pin-label strong {
+  display: block;
+  font-size: 10px;
+  color: #0f172a;
+}
+
+.office-pin-label em {
+  display: block;
+  font-size: 9px;
+  font-style: normal;
+  color: #64748b;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.office-pin-alert {
+  position: absolute;
+  top: -10px;
+  right: -8px;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: #ef4444;
+  color: #fff;
+  font-weight: 800;
+  font-size: 11px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 0 0 2px #fff;
+  z-index: 4;
+}
+
+.office-pin.founder-pin .office-pin-dot {
+  border-color: #1e293b;
+  background: #f8fafc;
+}
+
+@keyframes office-pulse {
+  0%, 100% { box-shadow: 0 0 0 4px rgba(37, 99, 235, 0.2); }
+  50% { box-shadow: 0 0 0 8px rgba(37, 99, 235, 0.08); }
+}
+
+.office-roam {
+  position: absolute;
+  transform: translate(-50%, 0);
+  display: flex;
+  gap: 6px;
+  z-index: 2;
+  pointer-events: none;
+}
+
+.office-ceo-bubble {
+  position: absolute;
+  right: 3.5%;
+  top: 31%;
+  width: min(280px, 28%);
+  background: rgba(255, 255, 255, 0.96);
+  border: 1px solid #d7dee6;
+  border-radius: 12px;
+  padding: 10px 12px 12px;
+  font-size: 12px;
+  line-height: 1.45;
+  color: #334155;
+  box-shadow: 0 8px 24px rgba(15, 23, 42, 0.12);
+  z-index: 5;
+}
+
+.office-ceo-bubble.alert {
+  border-color: #fca5a5;
+  color: #991b1b;
+  background: #fef2f2;
+}
+
+.office-ceo-kicker {
+  display: block;
+  font-size: 9px;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: #64748b;
+  margin-bottom: 4px;
+}
+
+.office-dock {
+  display: grid;
+  grid-template-columns: minmax(220px, 320px) 1fr;
+  gap: 12px;
+  padding: 14px;
+  background: #fffdf8;
+  border-top: 1px solid #e8e0d2;
+}
+
+.office-inspect {
+  background: #ffffff;
+  border: 1px solid #e5ddcd;
+  border-radius: 12px;
+  padding: 12px 14px;
+}
+
+.office-inspect-kicker {
+  font-size: 9px;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: #3b82f6;
+}
+
+.office-inspect-title {
+  font-size: 14px;
+  font-weight: 700;
+  color: #0f172a;
+  margin: 4px 0 6px;
+}
+
+.office-inspect-body {
+  margin: 0;
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: #475569;
+}
+
+.office-inspect-time {
+  margin-top: 8px;
+  font-size: 10px;
+  color: #94a3b8;
+}
+
+.office-roster {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-content: flex-start;
+}
+
+.office-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: #ffffff;
+  border: 1px solid #e5ddcd;
+  border-radius: 999px;
+  padding: 4px 8px 4px 5px;
+  cursor: pointer;
+  font-family: inherit;
+}
+
+.office-chip.selected {
+  border-color: #0f172a;
+  box-shadow: 0 0 0 1px #0f172a;
+}
+
+.office-chip-swatch {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+}
+
+.office-chip-name {
+  font-size: 11px;
+  font-weight: 700;
+  color: #1e293b;
+}
+
+.desk-status-pill {
+  border: none;
+  font-weight: 700;
+}
+
+.desk-status-pill.status-idle { background: #f1f5f9; color: #64748b; }
+.desk-status-pill.status-working { background: #dbeafe; color: #1d4ed8; }
+.desk-status-pill.status-done { background: #dcfce7; color: #15803d; }
+.desk-status-pill.status-error { background: #fee2e2; color: #b91c1c; }
+
+.char {
+  position: relative;
+  width: 36px;
+  height: 48px;
+}
+
+.char.pose-standing {
+  overflow: visible;
+}
+
+.char.walking {
+  animation: char-pace 3.2s ease-in-out infinite;
+}
+
+.char.arriving {
+  animation: char-rush-in 0.6s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+.char.status-working {
+  animation: char-lean 1s ease-in-out infinite;
+}
+
+.char-svg {
+  width: 100%;
+  height: 100%;
+  display: block;
+  filter: drop-shadow(0 2px 2px rgba(0, 0, 0, 0.12));
+}
+
+.char-shadow-el {
+  fill: rgba(0, 0, 0, 0.14);
+}
+
+@keyframes char-pace {
+  0%, 100% { transform: translateX(0); }
+  50% { transform: translateX(10px); }
+}
+
+@keyframes char-rush-in {
+  0% { transform: translateX(-46px) scale(0.85); opacity: 0.4; }
+  60% { transform: translateX(6px) scale(1.03); opacity: 1; }
+  100% { transform: translateX(0) scale(1); }
+}
+
+@keyframes char-lean {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-2px); }
+}
+
+@media (max-width: 820px) {
+  .office-dock {
+    grid-template-columns: 1fr;
+  }
+
+  .office-ceo-bubble {
+    width: min(240px, 42%);
+    font-size: 11px;
+    top: 28%;
+  }
+
+  .office-pin-label {
+    display: none;
+  }
+
+  .office-pin.selected .office-pin-label {
+    display: block;
+  }
+}
