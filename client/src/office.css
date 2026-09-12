@@ -96,17 +96,12 @@
   line-height: 1.2;
   pointer-events: none;
   white-space: nowrap;
-  opacity: 0;
-  transform: translateY(4px);
-  transition: opacity 0.15s, transform 0.15s;
-}
-
-.office-pin:hover .office-pin-label,
-.office-pin.selected .office-pin-label,
-.office-pin.status-working .office-pin-label,
-.office-pin.status-error .office-pin-label {
+  /* Always visible — every agent's name tag stays up regardless of
+     status, not just on hover/select/working/error. Previously idle/done
+     pins showed only a bare dot with no name, which read as unlabeled. */
   opacity: 1;
   transform: translateY(0);
+  transition: opacity 0.15s, transform 0.15s;
 }
 
 .office-pin-label strong {
@@ -344,10 +339,11 @@
   }
 
   .office-pin-label {
-    display: none;
-  }
-
-  .office-pin.selected .office-pin-label {
+    /* Kept visible on mobile too — same "always show the name" rule as
+       desktop, just smaller so 12 labels on a phone-width floor plan
+       don't overlap. */
     display: block;
+    font-size: 9px;
+    padding: 1px 5px 2px;
   }
 }
