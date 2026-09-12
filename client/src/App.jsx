@@ -87,7 +87,7 @@ export default function App() {
         ))}
       </div>
 
-      {error && <p style={{ color: "var(--accent-red)" }}>{error}</p>}
+      {error && tab !== "Office" && <p style={{ color: "var(--accent-red)" }}>{error}</p>}
 
       {tab === "Office" && <OfficeView />}
 

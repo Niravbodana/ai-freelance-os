@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import { api } from "../api/client.js";
 
 const AUTO_REFRESH_MS = 8_000;
@@ -101,63 +101,10 @@ function statusOf(run) {
   return "idle";
 }
 
-function shade(hex, percent) {
-  const num = parseInt(hex.replace("#", ""), 16);
-  const clamp = (v) => Math.max(0, Math.min(255, v));
-  const amt = Math.round(2.55 * percent);
-  const r = clamp((num >> 16) + amt);
-  const g = clamp(((num >> 8) & 0x00ff) + amt);
-  const b = clamp((num & 0x0000ff) + amt);
-  return `#${(0x1000000 + r * 0x10000 + g * 0x100 + b).toString(16).slice(1)}`;
-}
-
-function Character({ meta, status, isCeo, walking, arriving, pose = "sitting" }) {
-  const shirtDark = shade(meta.shirt, -18);
-  const hairD =
-    meta.style === "long"
-      ? "M12,27 C12,12 21,3 32,3 C43,3 52,12 52,27 L52,50 C52,54 48,55 47,50 L45,30 C45,20 39,13 32,13 C25,13 19,20 19,30 L17,50 C16,55 12,54 12,50 Z"
-      : "M13,26 C13,11 21,4 32,4 C43,4 51,11 51,26 C51,19 45,13 32,13 C19,13 13,19 13,26 Z";
-
-  return (
-    <div className={`char status-${status}${walking ? " walking" : ""}${arriving ? " arriving" : ""} pose-${pose}`}>
-      <svg
-        viewBox="0 0 64 96"
-        preserveAspectRatio={pose === "standing" ? "xMidYMid meet" : "xMidYMin slice"}
-        className="char-svg"
-        role="img"
-        aria-label={meta.name}
-      >
-        {pose === "standing" && (
-          <>
-            <ellipse cx="32" cy="92" rx="16" ry="3" className="char-shadow-el" />
-            <rect x="20" y="66" width="9" height="24" rx="4" fill={shirtDark} />
-            <rect x="35" y="66" width="9" height="24" rx="4" fill={shirtDark} />
-            <ellipse cx="24.5" cy="91" rx="6" ry="3" fill="#2b2f36" />
-            <ellipse cx="39.5" cy="91" rx="6" ry="3" fill="#2b2f36" />
-          </>
-        )}
-        <path d="M10,90 C10,66 16,52 32,52 C48,52 54,66 54,90 Z" fill={meta.shirt} />
-        {isCeo && <path d="M29,52 L35,52 L33,66 L32,74 L31,66 Z" fill="#b91c1c" />}
-        {!isCeo && <path d="M10,58 C16,64 48,64 54,58 L54,66 C44,72 20,72 10,66 Z" fill={shirtDark} opacity="0.55" />}
-        <rect x="2" y="62" width="14" height="16" rx="7" fill={shirtDark} />
-        <rect x="48" y="62" width="14" height="16" rx="7" fill={shirtDark} />
-        <circle cx="9" cy="78" r="6.5" fill={meta.skin} />
-        <circle cx="55" cy="78" r="6.5" fill={meta.skin} />
-        <rect x="26" y="38" width="12" height="14" rx="4" fill={meta.skin} />
-        <circle cx="32" cy="28" r="17" fill={meta.skin} />
-        <path d={hairD} fill={meta.hair} />
-        <circle cx="26" cy="29" r="1.8" fill="#2b2f36" />
-        <circle cx="38" cy="29" r="1.8" fill="#2b2f36" />
-        <path d="M27,36 Q32,40 37,36" stroke="#8a5a35" strokeWidth="2" fill="none" strokeLinecap="round" />
-      </svg>
-    </div>
-  );
-}
-
-function StationPin({ station, run, roaming, selected, onSelect }) {
+function StationPin({ station, run, selected, onSelect }) {
   const agent = station.agent;
   const meta = agent ? AGENT_META[agent] : null;
-  const status = agent ? statusOf(run) : roaming ? "idle" : "idle";
+  const status = agent ? statusOf(run) : "idle";
   const title = meta ? `${meta.name} · ${meta.role}` : station.label;
 
   return (
@@ -185,9 +132,7 @@ export default function OfficeView() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [wanderTick, setWanderTick] = useState(0);
-  const [arrivingSet, setArrivingSet] = useState(new Set());
   const [selectedId, setSelectedId] = useState("founder");
-  const prevStatusRef = useRef({});
 
   async function load() {
     try {
@@ -224,29 +169,11 @@ export default function OfficeView() {
     }
   }
 
-  useEffect(() => {
-    const justArrived = new Set();
-    for (const agentType of AGENT_ORDER) {
-      const nowStatus = statusOf(latestByAgent[agentType]);
-      const wasStatus = prevStatusRef.current[agentType];
-      if (wasStatus === "idle" && nowStatus !== "idle") justArrived.add(agentType);
-      prevStatusRef.current[agentType] = nowStatus;
-    }
-    if (justArrived.size > 0) {
-      setArrivingSet(justArrived);
-      const t = setTimeout(() => setArrivingSet(new Set()), 650);
-      return () => clearTimeout(t);
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [runs]);
-
   const idleAgents = AGENT_ORDER.filter((a) => statusOf(latestByAgent[a]) === "idle");
-  const occupants = { pantry: [], discussion: [], lounge: [], cooler: [], meeting: [] };
   const roamingByAgent = {};
   idleAgents.forEach((agentType, i) => {
     const spot = BREAK_SPOTS[(hashStr(agentType) + wanderTick + i) % BREAK_SPOTS.length];
     roamingByAgent[agentType] = spot;
-    occupants[spot.id]?.push(agentType);
   });
 
   const stuckAgents = AGENT_ORDER.filter((a) => statusOf(latestByAgent[a]) === "error").map((a) => AGENT_META[a].name);
@@ -272,9 +199,6 @@ export default function OfficeView() {
 
   return (
     <div className="office-room">
-      {error && <p className="office-banner office-banner-error">{error} — floor plan is still live; agent pins will fill in when the API is up.</p>}
-      {loading && <p className="office-banner">Opening the office...</p>}
-
       <div className="office-stage">
         <img
           src="/office-floor.jpg"
@@ -282,41 +206,15 @@ export default function OfficeView() {
           className="office-plate"
         />
 
-        {STATIONS.map((station) => (
+        {STATIONS.filter((station) => station.agent || station.founder).map((station) => (
           <StationPin
             key={station.id}
             station={station}
             run={station.agent ? latestByAgent[station.agent] : null}
-            roaming={station.agent ? roamingByAgent[station.agent] : null}
             selected={selectedId === station.id}
             onSelect={setSelectedId}
           />
         ))}
-
-        {BREAK_SPOTS.map((spot) => {
-          const folks = occupants[spot.id] || [];
-          if (folks.length === 0) return null;
-          const anchor = STATIONS.find((s) => s.id === spot.id);
-          if (!anchor) return null;
-          return (
-            <div
-              key={`roam-${spot.id}`}
-              className="office-roam"
-              style={{ left: `${anchor.x}%`, top: `${anchor.y + 4}%` }}
-            >
-              {folks.map((agentType) => (
-                <Character
-                  key={agentType}
-                  meta={AGENT_META[agentType]}
-                  status="idle"
-                  walking
-                  arriving={arrivingSet.has(agentType)}
-                  pose="standing"
-                />
-              ))}
-            </div>
-          );
-        })}
 
         <div className={`office-ceo-bubble${ceoAlert ? " alert" : ""}`}>
           <span className="office-ceo-kicker">Founder</span>
@@ -338,6 +236,8 @@ export default function OfficeView() {
                 : describeRun(selectedRun)}
           </p>
           {selectedRun?.startedAt && <div className="office-inspect-time">{timeAgo(selectedRun.startedAt)}</div>}
+          {error && <div className="office-inspect-time">Live status paused — API unreachable.</div>}
+          {loading && !error && <div className="office-inspect-time">Opening the office...</div>}
         </div>
 
         <div className="office-roster">

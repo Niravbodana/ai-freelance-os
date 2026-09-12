@@ -53,12 +53,12 @@
 }
 
 .office-pin-dot {
-  width: 16px;
-  height: 16px;
+  width: 12px;
+  height: 12px;
   border-radius: 50%;
-  background: #ffffff;
-  border: 3px solid #94a3b8;
-  box-shadow: 0 0 0 3px rgba(255, 255, 255, 0.7);
+  background: rgba(255, 255, 255, 0.55);
+  border: 2px solid rgba(148, 163, 184, 0.7);
+  box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.35);
 }
 
 .office-pin.status-working .office-pin-dot {
@@ -78,7 +78,8 @@
 }
 
 .office-pin.status-idle .office-pin-dot {
-  border-color: #cbd5e1;
+  border-color: rgba(203, 213, 225, 0.55);
+  background: rgba(255, 255, 255, 0.28);
 }
 
 .office-pin.selected .office-pin-dot {
