@@ -99,6 +99,18 @@ export async function processInbox() {
       where: { id: run.id },
       data: { status: "SUCCESS", log: `Processed ${processed} email(s)`, finishedAt: new Date() },
     });
+
+    // INBOX incidents have no jobId, so retrySweep() can never actually
+    // retry them (registerRetryHandler only fires for job-keyed
+    // incidents) — every one escalates to the owner immediately, even a
+    // one-off transient IMAP hiccup ("Unexpected close" from an idle
+    // connection Gmail dropped) that this very run just proved is fine
+    // again. Without this, the owner has to manually "Mark resolved"
+    // something the system already recovered from on its own.
+    await prisma.incident.updateMany({
+      where: { source: "INBOX", status: { in: ["OPEN", "ESCALATED"] } },
+      data: { status: "RESOLVED" },
+    });
   } catch (err) {
     await prisma.agentRun.update({
       where: { id: run.id },

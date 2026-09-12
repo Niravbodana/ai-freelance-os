@@ -162,6 +162,15 @@ export async function advancePipeline() {
     }
   }
 
+  // Same reasoning as HUNTER/INBOX: scheduler.js escalates a PIPELINE
+  // failure straight to the owner (no jobId to retry against), so a
+  // one-off transient failure otherwise stays flagged "needs you" even
+  // after this very sweep completes cleanly. Clear it on a clean run.
+  await prisma.incident.updateMany({
+    where: { source: "PIPELINE", status: { in: ["OPEN", "ESCALATED"] } },
+    data: { status: "RESOLVED" },
+  });
+
   return { workerRuns, deliveryRuns, invoiceRuns, depositInvoiceRuns, contractsSent };
 }
 

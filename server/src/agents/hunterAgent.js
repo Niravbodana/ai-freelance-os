@@ -226,6 +226,18 @@ export async function runHunterAgent() {
       where: { id: run.id },
       data: { status: "SUCCESS", log: `Discovered ${discovered} jobs`, finishedAt: new Date() },
     });
+
+    // scheduler.js escalates a HUNTER failure to the owner immediately
+    // (recordAndEscalateNow, not the retry queue) since a sweep-style
+    // failure has no jobId to retry against — but that means a one-off
+    // transient failure (a job board timing out, say) stays flagged
+    // "needs you" forever even after this very next successful run
+    // proves it's fine again. Clear it here instead of leaving that for
+    // a manual "Mark resolved".
+    await prisma.incident.updateMany({
+      where: { source: "HUNTER", status: { in: ["OPEN", "ESCALATED"] } },
+      data: { status: "RESOLVED" },
+    });
   } catch (err) {
     await prisma.agentRun.update({
       where: { id: run.id },
