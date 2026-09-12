@@ -113,8 +113,15 @@ function looksLikeFullTimeRole(job) {
  * A NOT_FEASIBLE job is dead weight the moment it's rejected — it will
  * never move again, and with 8 job-board sources now feeding in, the Jobs
  * list would otherwise fill up with hundreds of things nobody will ever
- * look at. Deletes anything rejected more than 5 minutes ago. AgentRun
- * rows are deleted first since they reference the job with no cascade.
+ * look at. Deletes anything rejected more than 5 minutes ago.
+ *
+ * Every row referencing the job (AgentRun, Proposal, Deliverable, Payment
+ * — none of them cascade) has to go first. This was missing Proposal:
+ * a job that got a proposal drafted before later being re-flagged
+ * NOT_FEASIBLE (e.g. a stale `feasible:true` re-checked by the retry
+ * sweep after the category gate tightened) still carries one, and
+ * deleting the Job first threw a real foreign-key error in production —
+ * seen live crashing this sweep every 5 minutes on the founder's Mac.
  */
 export async function cleanupRejectedJobs() {
   const cutoff = new Date(Date.now() - REJECTED_JOB_TTL_MS);
@@ -126,6 +133,9 @@ export async function cleanupRejectedJobs() {
 
   const ids = stale.map((j) => j.id);
   await prisma.agentRun.deleteMany({ where: { jobId: { in: ids } } });
+  await prisma.proposal.deleteMany({ where: { jobId: { in: ids } } });
+  await prisma.deliverable.deleteMany({ where: { jobId: { in: ids } } });
+  await prisma.payment.deleteMany({ where: { jobId: { in: ids } } });
   await prisma.job.deleteMany({ where: { id: { in: ids } } });
   return { deleted: ids.length };
 }
