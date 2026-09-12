@@ -55,7 +55,7 @@ registerJobSource(landingJobsAdapter);
 registerJobSource(freelancerComAdapter);
 registerJobSource(guruComAdapter);
 
-const REJECTED_JOB_TTL_MS = 5 * 60 * 1000;
+const REJECTED_JOB_TTL_MS = 24 * 60 * 60 * 1000;
 const DEDUPE_WINDOW_MS = 14 * 24 * 60 * 60 * 1000;
 
 /**
@@ -113,7 +113,9 @@ function looksLikeFullTimeRole(job) {
  * A NOT_FEASIBLE job is dead weight the moment it's rejected — it will
  * never move again, and with 8 job-board sources now feeding in, the Jobs
  * list would otherwise fill up with hundreds of things nobody will ever
- * look at. Deletes anything rejected more than 5 minutes ago.
+ * look at. Deletes anything rejected more than 1 day ago — long enough
+ * that a queued FEASIBILITY incident retry (or a human glancing at the
+ * Jobs tab) still finds the job there instead of racing this cleanup.
  *
  * Every row referencing the job (AgentRun, Proposal, Deliverable, Payment
  * — none of them cascade) has to go first. This was missing Proposal:
