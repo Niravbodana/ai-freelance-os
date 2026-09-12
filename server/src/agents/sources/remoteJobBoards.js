@@ -24,7 +24,7 @@ export async function remoteOkAdapter() {
       title: item.position,
       description: stripHtml(item.description || item.position),
       budget: item.salary_min ? `${item.salary_min}-${item.salary_max ?? ""}` : null,
-      category: guessCategory(item.tags || []),
+      category: guessCategory(item.position, item.tags || []),
       applyEmail: extractEmail(item.description || ""),
     }));
 }
@@ -50,7 +50,7 @@ export async function weWorkRemotelyAdapter() {
         title: item.title,
         description: stripHtml(item.description),
         budget: null,
-        category: guessCategory([item.title, item.description]),
+        category: guessCategory(item.title, [item.description]),
         applyEmail: extractEmail(item.description),
       });
     }
@@ -84,7 +84,7 @@ export async function remotiveAdapter() {
     title: job.title,
     description: stripHtml(job.description || job.title),
     budget: job.salary || null,
-    category: guessCategory([job.category, job.title]),
+    category: guessCategory(job.title, [job.category]),
     applyEmail: extractEmail(job.description || ""),
   }));
 }
@@ -103,7 +103,7 @@ export async function arbeitnowAdapter() {
     title: job.title,
     description: stripHtml(job.description || job.title),
     budget: null,
-    category: guessCategory([...(job.tags || []), job.title]),
+    category: guessCategory(job.title, job.tags || []),
     applyEmail: extractEmail(job.description || ""),
   }));
 }
@@ -123,7 +123,7 @@ export async function himalayasAdapter() {
     title: job.title,
     description: stripHtml(job.description || job.excerpt || job.title),
     budget: job.minSalary ? `${job.minSalary}-${job.maxSalary ?? ""} ${job.salaryPeriod ?? ""}`.trim() : null,
-    category: guessCategory([...(job.categories || []), job.title]),
+    category: guessCategory(job.title, job.categories || []),
     applyEmail: extractEmail(job.description || ""),
   }));
 }
@@ -143,7 +143,7 @@ export async function jobicyAdapter() {
     title: job.jobTitle,
     description: stripHtml(job.jobDescription || job.jobExcerpt || job.jobTitle),
     budget: job.annualSalaryMin ? `${job.annualSalaryMin}-${job.annualSalaryMax ?? ""}` : null,
-    category: guessCategory([...(job.jobIndustry || []), job.jobTitle]),
+    category: guessCategory(job.jobTitle, job.jobIndustry || []),
     applyEmail: extractEmail(job.jobDescription || ""),
   }));
 }
@@ -162,7 +162,7 @@ export async function workingNomadsAdapter() {
     title: job.title,
     description: stripHtml(job.description || job.title),
     budget: null,
-    category: guessCategory([job.category_name, ...(job.tags || []), job.title]),
+    category: guessCategory(job.title, [job.category_name, ...(job.tags || [])]),
     applyEmail: extractEmail(job.description || ""),
   }));
 }
@@ -183,7 +183,7 @@ export async function landingJobsAdapter() {
       title: job.title,
       description: stripHtml(`${job.role_description || ""} ${job.main_requirements || ""}`) || job.title,
       budget: job.gross_salary_low ? `${job.gross_salary_low}-${job.gross_salary_high ?? ""} ${job.currency_code ?? ""}`.trim() : null,
-      category: guessCategory([...(job.tags || []), job.title]),
+      category: guessCategory(job.title, job.tags || []),
       applyEmail: extractEmail(job.role_description || ""),
     }));
 }
@@ -244,16 +244,25 @@ function categoryFrom(text) {
   return null;
 }
 
-function guessCategory(tagsOrText) {
-  // The title (or first tag) is a far stronger signal than the full
-  // description — a generic word appearing once in a long description
-  // (almost any posting mentions "write" or "research" somewhere) caused
-  // most of the false positives. Trust it alone first; only fall back to
-  // the full combined text if the title itself gives no signal.
-  const title = String(tagsOrText[0] || "").toLowerCase();
-  const fromTitle = categoryFrom(title);
+/**
+ * `title` must be the job's actual posting title — NOT the first element of
+ * a tags/category array. An earlier version of this trusted
+ * `tagsOrText[0]`, assuming it was always the title; in reality 6 of the 8
+ * adapters below pass a tag or category string first (e.g. Remotive passes
+ * `job.category`, Arbeitnow/Landing.jobs pass the first tag), so that
+ * "title-first" check was silently checking the wrong field almost every
+ * time and immediately falling through to the full-text match anyway —
+ * which is exactly the noisy path this was meant to avoid. Real evidence
+ * (2026-09-12): sales/CRM/appointment-setter postings ("MSD 365 CRM Lead",
+ * "Appointment Setter (Remote)", "Director, Sales Compensation") kept
+ * reaching Feasibility because their descriptions happened to mention
+ * "data" once, and the title-check was never actually running against
+ * their real titles.
+ */
+function guessCategory(title, tagsOrText) {
+  const fromTitle = categoryFrom(String(title || "").toLowerCase());
   if (fromTitle) return fromTitle;
 
-  const joined = tagsOrText.join(" ").toLowerCase();
+  const joined = [title, ...tagsOrText].join(" ").toLowerCase();
   return categoryFrom(joined) || "other";
 }
