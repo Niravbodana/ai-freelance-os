@@ -222,11 +222,38 @@ function extractEmail(text) {
 // here never even reaches the Feasibility Agent. Erring toward "content"/
 // "data" costs one extra Claude call on a near-miss; erring toward
 // "other" costs the job entirely.
+// Real evidence from a live run (2026-09-12): bare substrings with no word
+// boundary were matching constantly on unrelated jobs — "analy" matched
+// any "Analyst" job title (Drilling Ops Analyst, Compliance Analyst,
+// Financial Analyst — full-time employment, nothing to do with our data/
+// research service), and "writ" matched any description mentioning "write
+// clean code" or "write status updates". Every false match cost a real
+// Claude feasibility call before being correctly rejected. Tightened to
+// whole-word patterns, and "analy" (analyst/analysis/analytics) dropped
+// entirely — it's too generic a fragment of common job titles to trust as
+// a data/research signal.
+const CONTENT_PATTERN =
+  /\bcopywrit(?:e|ing|er)?\b|\bwrit(?:e|es|ing|ten|er|ers)\b|\bcontent\b|\bblog(?:s|ging|ger)?\b|\barticle(?:s)?\b|\beditor(?:ial)?\b|\bediting\b|\bproofread(?:ing)?\b|\btranslat(?:e|ion|or|ing)\b|\bghostwrit(?:ing|er)?\b|\bscreenplay\b|\bnewsletter\b|press release|\bseo\b/;
+const DATA_PATTERN = /\bdata\b|\bscrap(?:e|ing)\b|\bresearch(?:er)?\b|\bexcel\b|\bspreadsheet(?:s)?\b|\bsummar(?:y|ize|ies|ising|izing)\b/;
+const CODE_PATTERN = /\bdev(?:eloper)?\b|\bcode\b|\bcoding\b|\bengineer(?:ing)?\b|\bprogram(?:mer|ming)?\b|\bsoftware\b/;
+
+function categoryFrom(text) {
+  if (CONTENT_PATTERN.test(text)) return "content";
+  if (DATA_PATTERN.test(text)) return "data";
+  if (CODE_PATTERN.test(text)) return "code";
+  return null;
+}
+
 function guessCategory(tagsOrText) {
+  // The title (or first tag) is a far stronger signal than the full
+  // description — a generic word appearing once in a long description
+  // (almost any posting mentions "write" or "research" somewhere) caused
+  // most of the false positives. Trust it alone first; only fall back to
+  // the full combined text if the title itself gives no signal.
+  const title = String(tagsOrText[0] || "").toLowerCase();
+  const fromTitle = categoryFrom(title);
+  if (fromTitle) return fromTitle;
+
   const joined = tagsOrText.join(" ").toLowerCase();
-  if (/copy|writ|content|blog|article|editor|editing|proofread|translat|ghostwrit|screenplay|newsletter|press release|seo\b/.test(joined))
-    return "content";
-  if (/\bdata\b|scrape|research|\bexcel\b|analy|spreadsheet|summar/.test(joined)) return "data";
-  if (/\bdev(eloper)?\b|code|engineer|program|software/.test(joined)) return "code";
-  return "other";
+  return categoryFrom(joined) || "other";
 }
