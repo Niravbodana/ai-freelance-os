@@ -163,27 +163,36 @@ function BackupPanel({ onRestored }) {
 
 function SettingRow({ item, draft, onDraftChange, onSave, onClear, onTest, busy, testResult }) {
   return (
-    <div className="settings-row">
-      <label>{item.label}</label>
-      <StatusPill item={item} testResult={testResult} />
-      <input
-        type={item.secret ? "password" : "text"}
-        placeholder={item.set ? item.maskedValue || "set" : item.placeholder || "not set"}
-        value={draft}
-        onChange={(e) => onDraftChange(e.target.value)}
-      />
-      <button className="btn" disabled={busy || !draft} onClick={onSave}>
-        Save
-      </button>
-      {item.set && (
-        <button className="btn danger" disabled={busy} onClick={onClear}>
-          Clear
+    <div className="settings-row-wrap">
+      <div className="settings-row">
+        <label>{item.label}</label>
+        <StatusPill item={item} testResult={testResult} />
+        <input
+          type={item.secret ? "password" : "text"}
+          placeholder={item.set ? item.maskedValue || "set" : item.placeholder || "not set"}
+          value={draft}
+          onChange={(e) => onDraftChange(e.target.value)}
+        />
+        <button className="btn" disabled={busy || !draft} onClick={onSave}>
+          Save
         </button>
-      )}
-      {item.testable && item.set && (
-        <button className="btn" disabled={busy} onClick={onTest}>
-          Test
-        </button>
+        {item.set && (
+          <button className="btn danger" disabled={busy} onClick={onClear}>
+            Clear
+          </button>
+        )}
+        {item.testable && item.set && (
+          <button className="btn" disabled={busy} onClick={onTest}>
+            Test
+          </button>
+        )}
+      </div>
+      {/* The test result's real reason (e.g. nodemailer's "Invalid login:
+          535-5.7.8...") used to be fetched and thrown away — only the
+          pill's color changed, so a failed test gave no way to actually
+          see why. Surface it here instead of silently discarding it. */}
+      {testResult && !testResult.ok && testResult.message && (
+        <p className="settings-row-error">{testResult.message}</p>
       )}
     </div>
   );

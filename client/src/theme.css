@@ -376,6 +376,17 @@ input:focus, textarea:focus, select:focus {
   min-width: 160px;
 }
 
+.settings-row-wrap {
+  margin-bottom: 4px;
+}
+
+.settings-row-error {
+  margin: -4px 0 10px 188px;
+  font-size: 11px;
+  color: var(--accent-red);
+  max-width: 640px;
+}
+
 ::-webkit-scrollbar {
   width: 8px;
 }
